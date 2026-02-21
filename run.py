@@ -81,6 +81,14 @@ def pip_install(venv_py: Path) -> None:
     print("Installing requirements...")
     run([str(venv_py), "-m", "pip", "install", "-r", str(req)])
 
+    if is_windows():
+        print("Checking zoneinfo timezone data (Windows)...")
+        try:
+            run([str(venv_py), "-c", "from zoneinfo import ZoneInfo; ZoneInfo('UTC')"])
+        except subprocess.CalledProcessError:
+            print("Installing tzdata for zoneinfo support on Windows...")
+            run([str(venv_py), "-m", "pip", "install", "tzdata"])
+
 
 def start_scheduler(venv_py: Path) -> subprocess.Popen:
     # Runs: python -m app.jobs.schedule_runner

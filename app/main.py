@@ -64,12 +64,20 @@ def today_context() -> dict:
         workout["pullups"],
     )
     intensity_preview = preview_intensity_tier(today)
+    encounter = daily_roll.get("encounter", {}) if isinstance(daily_roll, dict) else {}
+    if not isinstance(encounter, dict):
+        encounter = {}
+    if not isinstance(encounter.get("stakes"), list):
+        encounter["stakes"] = []
+    encounter_result = daily_roll.get("result") if isinstance(daily_roll, dict) else None
+    if encounter_result is not None and not isinstance(encounter_result, dict):
+        encounter_result = None
     return {
         "today": today,
         "player": player,
         "workout": workout,
-        "encounter": daily_roll["encounter"],
-        "encounter_result": daily_roll["result"],
+        "encounter": encounter,
+        "encounter_result": encounter_result,
         "sidequest": sidequest,
         "preview_grit": preview_grit,
         "minimum_set": MINIMUM_SET,

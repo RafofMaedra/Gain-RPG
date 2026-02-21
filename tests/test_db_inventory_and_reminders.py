@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import app.db as db
@@ -65,6 +66,15 @@ class InventoryEffectsTests(DBIsolatedTestCase):
         items = db.get_inventory()
         equipped_weapon_count = sum(1 for item in items if item["type"] == "weapon" and item["equipped"])
         self.assertEqual(equipped_weapon_count, 1)
+
+
+
+
+class TimezoneFallbackTests(DBIsolatedTestCase):
+    def test_get_app_today_falls_back_when_zoneinfo_unavailable(self) -> None:
+        with patch("app.db.ZoneInfo", side_effect=db.ZoneInfoNotFoundError("missing")):
+            today = db.get_app_today()
+        self.assertRegex(today, r"^\d{4}-\d{2}-\d{2}$")
 
 
 class ReminderIdempotencyTests(DBIsolatedTestCase):

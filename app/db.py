@@ -48,7 +48,10 @@ def utc_now_iso() -> str:
 def _parse_json(raw: str | None, fallback=None):
     if not raw:
         return fallback
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return fallback
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -173,12 +176,15 @@ def get_player() -> dict:
         conn.close()
 
 
-def _player_zoneinfo(player: sqlite3.Row | dict | None) -> ZoneInfo:
+def _player_zoneinfo(player: sqlite3.Row | dict | None):
     tz_name = (player or {}).get("day_timezone") if isinstance(player, dict) else (player["day_timezone"] if player and "day_timezone" in player.keys() else "Pacific/Auckland")
     try:
         return ZoneInfo(tz_name or "Pacific/Auckland")
     except ZoneInfoNotFoundError:
-        return ZoneInfo("UTC")
+        try:
+            return ZoneInfo("UTC")
+        except ZoneInfoNotFoundError:
+            return timezone.utc
 
 
 def get_app_today() -> str:
