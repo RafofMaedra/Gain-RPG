@@ -1,0 +1,571 @@
+Initial prompt
+
+0) Product summary
+
+Problem: I forget workouts; when I remember I sometimes don’t care.
+Solution: A self-hosted web app that turns daily workouts into “Grit” used to survive a nightly encounter. Weekly boss fights gate levelling. Side quests encourage cardio/mobility. Narrative micro-rewards reinforce consistency.
+
+Core loop (daily):
+
+App reminds me.
+
+I log workout (minimum set or more).
+
+Grit restores + tokens/coins earned.
+
+Nightly encounter resolves (manual “Lock In” or auto at midnight).
+
+Results + small story reward displayed.
+
+1) Constraints and non-goals
+Must-haves
+
+Works in mobile browser + desktop browser.
+
+Single-player is fine (no complex multi-user needed).
+
+Logging is frictionless (one-tap minimum set).
+
+Auto daily processing at midnight Pacific/Auckland.
+
+Discord webhook notifications (fallback available).
+
+“Testing mode” to advance day / skip resolution.
+
+Non-goals (don’t build)
+
+No anti-cheat.
+
+No complex combat, no GM tools, no d20/D&D style systems.
+
+No complicated accounts/permissions (keep auth simple).
+
+2) Recommended stack (simple + self-hostable)
+Backend
+
+Python + FastAPI
+
+SQLite (single file DB)
+
+SQLAlchemy (or plain sqlite3 if you want ultra-simple)
+
+Frontend
+
+Pick ONE:
+
+Server-rendered (FastAPI + Jinja2 + HTMX) — fastest, simplest, great for phone.
+
+OR a small SPA (React/Vite) if you prefer, but it’s more work.
+
+Scheduling
+
+Cron calling a CLI command (simple)
+e.g. python -m app.jobs.midnight_tick
+
+Or APScheduler inside the app (fine, but cron is more reliable on a laptop)
+
+Notifications
+
+Discord incoming webhook (post to a private channel)
+
+Fallback: ntfy (self-host or public), or email.
+
+Deployment
+
+systemd service for backend
+
+Optional reverse proxy: Caddy (easy HTTPS) or Nginx
+
+3) Data model (SQLite)
+
+Keep tables minimal and explicit. Use JSON columns where helpful.
+
+player
+
+id (1 row)
+
+name
+
+level (int)
+
+weeks_completed_towards_next_level (int)
+
+weeks_required_for_next_level (int) (= current level; see levelling rules)
+
+grit_current (int)
+
+grit_max (int)
+
+coins (int)
+
+campfire_tokens (int) (insurance tokens)
+
+theme_pack (string key)
+
+testing_mode (bool)
+
+workout_log
+
+One row per day (date key).
+
+date (YYYY-MM-DD, primary key)
+
+pushups (int)
+
+situps (int)
+
+squats (int)
+
+pullups (int)
+
+other_json (text/json: cardio minutes, km, notes)
+
+minimum_set_done (bool)
+
+locked_in_at (datetime nullable)
+
+last_edited_at (datetime)
+
+daily_roll
+
+Stores the generated nightly content so it’s deterministic for that date.
+
+date (primary key)
+
+encounter_json (text/json)
+
+sidequest_json (text/json nullable)
+
+generated_at (datetime)
+
+resolved_at (datetime nullable)
+
+result_json (text/json nullable)
+
+inventory_item (optional early; can be JSON-only at first)
+
+id
+
+name
+
+type (weapon/armour/trinket/consumable)
+
+effect_json
+
+equipped (bool)
+
+event_log
+
+Append-only “story moments”.
+
+id
+
+date
+
+kind (reward, boss, sidequest, injury_mode, etc.)
+
+text
+
+meta_json
+
+4) Rules (keep these exact for MVP)
+4.1 Minimum set
+
+One tap logs:
+
+push-ups 5
+
+sit-ups 10
+
+squats 10
+
+pull-ups 1
+(These values can be config constants.)
+
+4.2 Grit restore
+
+Convert reps to Grit:
+
++1 grit per 10 push-ups
+
++1 grit per 15 sit-ups
+
++1 grit per 20 squats
+
++1 grit per 3 pull-ups
+
++1 bonus grit if all four exercises have >0 reps that day
+
+Cap: cannot exceed grit_max.
+Overflow: each overflow grit becomes +1 coin (or +1 coin per 2 overflow grit—pick one constant).
+
+4.3 Campfire Tokens (insurance)
+
+Earn tokens for consistency / exceeding:
+
+If you do minimum set: +0 tokens
+
+If you exceed minimum set by a threshold (e.g. +50% total grit restore potential): +1 token
+
+If you streak 7 days minimum set: +2 tokens (weekly)
+
+Spending tokens (buttons):
+
+Spend 1: “Treat today as minimum set” (only if truly 0 reps logged; still a trust system)
+
+Spend 1: “Negate tonight’s damage”
+
+Spend 1: “Reroll encounter once”
+
+4.4 Encounter system (tiny, deterministic)
+
+Each day generates a threat:
+
+threat_name
+
+hp (3–8)
+
+damage (1–4)
+
+tag (beast, bandit, curse, etc.)
+
+reward_table_key (coins/loot/story)
+
+Player stats:
+
+attack (base 2, +1 per 2 levels, +gear)
+
+guard (reduces damage by 1 when guarding, minimum 0)
+
+Resolution options:
+
+Auto Resolve (default): simulate simple strategy:
+
+If grit is high, favour Strike; if low, favour Guard.
+
+Manual Resolve (one tap per round):
+
+Strike: deal attack damage; if threat survives, take full damage.
+
+Guard: deal 1 damage; take max(0, damage - guard - 1).
+
+Damage taken reduces grit_current.
+If grit hits 0: you “survive with consequence” (lose coins, lose token, or gain a “Wound” flag). Keep it light.
+
+Two-tier outcome:
+
+If threat dies on a Strike round → Defeat (you probably took damage that round).
+
+If threat dies on a Guard round → Overwhelm (safer finish + small bonus reward).
+
+4.5 Daily timing
+
+At 00:00 Pacific/Auckland, the app:
+
+generates today’s roll (if missing),
+
+resolves yesterday if it wasn’t resolved (auto resolve),
+
+posts reminder/status.
+
+4.6 Sunday boss fight
+
+On Sundays, generate a boss instead:
+
+higher hp (8–14), maybe a simple special like “every 3rd round +1 damage”.
+
+If you “survive” (grit not forced to 0, or you don’t trigger the worst consequence), you gain:
+
+weeks_completed_towards_next_level += 1
+
+Levelling rule:
+
+weeks_required_for_next_level = current level
+
+When weeks_completed >= weeks_required:
+
+level += 1
+
+reset weeks_completed = 0
+
+recompute weeks_required = new level
+
+increase grit_max (+1 or +2), and grant one item roll
+
+4.7 Side quests
+
+Side quest is optional, generates 1–2 encounters and a reward, and requires:
+
+bike minutes OR km OR mobility minutes
+
+Completion reward:
+
++1 campfire token OR +coins/loot
+
+Every 2 completed: +1 week progress toward next level
+
+5) Theme packs (content-as-data)
+
+Store pack data as JSON files loaded at runtime:
+
+theme_packs/<pack_key>/threats.json
+
+.../bosses.json
+
+.../rewards.json
+
+.../narrative_snippets.json
+
+.../sidequests.json
+
+Each entry is simple:
+
+name
+
+tags
+
+weight
+
+stat ranges
+
+narrative snippet templates
+
+This lets you expand content without touching code.
+
+6) Notifications
+Discord webhook (MVP)
+
+Config:
+
+DISCORD_WEBHOOK_URL
+Messages:
+
+Morning reminder (optional): “Minimum set keeps your Grit alive.”
+
+Evening reminder if no minimum set logged by X time (e.g. 7pm).
+
+Midnight: summary of today’s roll + last night’s result.
+
+Fallback option
+
+ntfy topic URL (push to phone)
+
+or email
+
+Implement as pluggable “notifier” interface:
+
+send(title, body, priority)
+
+7) UI screens (mobile-first)
+A) Today (default screen)
+
+Big buttons:
+
+Minimum Set (1 tap)
+
++ Add reps (quick +/- controls)
+
+Lock In Today
+
+Shows:
+
+Current Grit / Max
+
+Coins, Tokens
+
+Today’s threat card (name, hp, damage, tag)
+
+“Resolve now” (auto or manual)
+
+B) Encounter screen
+
+Threat status + round buttons:
+
+Strike / Guard
+
+Or “Auto resolve” button
+
+Result splash + narrative reward text
+
+C) Side quests
+
+“Generate Side Quest” (or auto-generate 2–3 per week)
+
+Log required activity
+
+Resolve encounter(s)
+
+Claim reward
+
+D) Progress
+
+Level, weeks progress bar
+
+Boss countdown (“Sunday boss in X days”)
+
+Streak count
+
+E) Settings
+
+Notification settings (webhook URLs)
+
+Theme pack
+
+Testing mode toggle
+
+Export/Import save
+
+8) Visual aid / sprites: minimum requirements
+
+Don’t overbuild art. Use a tiny “sprite sheet” approach.
+
+Sprite spec (good enough)
+
+Pixel art, transparent PNG.
+
+32x32 sprites (or 48x48 if you prefer).
+
+One sheet per pack.
+
+Minimum set:
+
+Player sprite:
+
+player_idle.png
+
+player_hurt.png (optional)
+
+Threat icons (at least 6):
+
+threat_beast.png
+
+threat_bandit.png
+
+threat_undead.png
+
+threat_curse.png
+
+threat_boss.png
+
+threat_unknown.png
+
+Item icons (at least 8):
+
+sword, shield, boots, ring, potion, coin, scroll, campfire_token
+
+If you can’t be bothered with sprites early:
+
+Use emoji/icons + coloured badges, then swap in sprites later.
+
+9) Build order (milestones with acceptance criteria)
+Milestone 1 — Skeleton app + DB
+
+FastAPI app runs, SQLite initialised, basic pages load on phone.
+
+Player row created automatically on first run.
+
+Settings page exists.
+
+Milestone 2 — Workout logging (frictionless)
+
+Today page shows reps and Minimum Set button.
+
+Grit restore computed live (preview) and applied on save.
+
+Can edit today’s reps any time before Lock In.
+
+Milestone 3 — Daily roll generation
+
+At midnight job creates daily_roll for the date.
+
+“Generate/Refresh today” exists in testing mode.
+
+Daily roll includes threat stats + text.
+
+Milestone 4 — Encounter resolution
+
+Auto resolve works and produces result_json.
+
+Manual resolve screen works (Strike/Guard).
+
+Grit decreases correctly; reward applied.
+
+Milestone 5 — Boss fights + levelling
+
+Sundays generate boss.
+
+Survival increments week progress.
+
+Levelling increases grit_max and grants an item roll.
+
+Milestone 6 — Side quests
+
+Generate quest requiring bike/km/mobility.
+
+Completing 2 quests adds +1 week progress.
+
+Optional encounters + reward text.
+
+Milestone 7 — Notifications
+
+Discord webhook works.
+
+Evening “nudge” only if minimum set not done.
+
+Midnight summary posts.
+
+Milestone 8 — Export/backup/testing polish
+
+Export save JSON
+
+Import save JSON
+
+Nightly DB backup file copy
+
+Testing mode: advance day, force boss, reroll, skip resolution
+
+10) Codex task prompts (copy/paste)
+
+Use these as a sequence of instructions to Codex.
+
+Prompt 1: project scaffold
+
+“Create a FastAPI + SQLite project. Use server-rendered HTML (Jinja2) and HTMX for interactivity. Mobile-first layout. Implement DB initialisation and a single player row.”
+
+Prompt 2: workout logging
+
+“Implement /today page with Minimum Set and reps controls for push-ups/sit-ups/squats/pull-ups. Save to workout_log. Compute grit restore from constants and apply to player stats on save. Allow editing until locked_in_at is set.”
+
+Prompt 3: daily roll + midnight job
+
+“Implement daily_roll generation from JSON tables (theme pack). Add CLI command midnight_tick that: generates today’s roll, resolves yesterday if unresolved, and sends notifications. Ensure timezone Pacific/Auckland.”
+
+Prompt 4: encounter engine
+
+“Implement encounter resolution using simple Strike/Guard rounds. Add auto resolve and manual resolve. Store result in daily_roll.result_json and write narrative entry into event_log.”
+
+Prompt 5: boss + levelling
+
+“On Sundays, generate a boss encounter. If survived, increment weeks progress. If progress >= level, level up: increase grit_max, reset progress, roll an item reward.”
+
+Prompt 6: side quests
+
+“Implement side quests requiring cardio/mobility logging. Completion adds rewards and every 2 completions adds +1 week progress. Optional 1–2 mini-encounters.”
+
+Prompt 7: notifications
+
+“Implement notifier interface with Discord webhook sender and ntfy fallback. Add evening reminder job if minimum set not done.”
+
+Prompt 8: export/import/testing mode
+
+“Add testing mode toggle in settings. Implement advance-day, reroll-today, force-boss buttons. Add export/import JSON and nightly DB backup.”
+
+11) “Gotchas” to bake in early
+
+Store daily_roll so you can’t accidentally change the day’s threat by refreshing.
+
+Make “Minimum Set” always one tap.
+
+Never block the user on long flows: everything should be skippable or auto-resolvable.
+
+Keep tables as JSON so you can iterate on content without migrations.
