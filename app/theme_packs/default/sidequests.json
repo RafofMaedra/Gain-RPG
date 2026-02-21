@@ -1,0 +1,5 @@
+[
+  {"kind":"bike_minutes","target_min":10,"target_max":25,"weight":2,"text":"Complete {target} bike minutes.","reward":"token"},
+  {"kind":"km","target_min":2,"target_max":6,"weight":1,"text":"Ride or run {target} km.","reward":"coins"},
+  {"kind":"mobility_minutes","target_min":10,"target_max":20,"weight":2,"text":"Complete {target} mobility minutes.","reward":"token"}
+]

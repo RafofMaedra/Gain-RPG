@@ -1,0 +1,5 @@
+[
+  {"name":"Warden of Ash","tags":["boss"],"weight":1,"hp_min":8,"hp_max":14,"damage_min":2,"damage_max":5,"special":"every_3rd_round_plus_1_damage"},
+  {"name":"Crown Eater","tags":["boss"],"weight":1,"hp_min":8,"hp_max":14,"damage_min":2,"damage_max":5,"special":"every_3rd_round_plus_1_damage"},
+  {"name":"Storm Wyrm","tags":["boss"],"weight":1,"hp_min":9,"hp_max":14,"damage_min":2,"damage_max":5,"special":"every_3rd_round_plus_1_damage"}
+]

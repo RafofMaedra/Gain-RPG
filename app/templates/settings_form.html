@@ -11,6 +11,34 @@
   <label>
     Theme pack
     <input type="text" name="theme_pack" value="{{ player.theme_pack }}" required />
+    <small class="hint">Example: default (loads from app/theme_packs/&lt;name&gt;)</small>
+  </label>
+
+  <label>
+    Discord webhook URL
+    <input type="text" name="discord_webhook_url" value="{{ player.discord_webhook_url }}" />
+  </label>
+
+  <label>
+    ntfy topic URL
+    <input type="text" name="ntfy_topic_url" value="{{ player.ntfy_topic_url }}" />
+  </label>
+
+
+  <label>
+    Day timezone
+    <input type="text" name="day_timezone" value="{{ player.day_timezone or 'Pacific/Auckland' }}" required />
+    <small class="hint">IANA timezone, e.g. Pacific/Auckland or America/Los_Angeles.</small>
+  </label>
+
+
+  <label>
+    Romance dial
+    <select name="romance_dial">
+      <option value="off" {% if player.romance_dial == 'off' %}selected{% endif %}>Off</option>
+      <option value="light_flirt" {% if player.romance_dial == 'light_flirt' %}selected{% endif %}>Light flirt</option>
+      <option value="strong_flirt" {% if player.romance_dial == 'strong_flirt' %}selected{% endif %}>Strong flirt</option>
+    </select>
   </label>
 
   <label class="checkbox-row">
@@ -19,4 +47,16 @@
   </label>
 
   <button type="submit">Save</button>
+</form>
+
+<hr />
+<h3>Export / Import Save</h3>
+<p class="hint">Use export JSON for backups. Import expects the same JSON structure.</p>
+<p><a href="/export" target="_blank">Export save JSON</a></p>
+<form method="post" action="/import">
+  <label>
+    Paste save JSON
+    <textarea name="payload" rows="8" required></textarea>
+  </label>
+  <button type="submit">Import save</button>
 </form>

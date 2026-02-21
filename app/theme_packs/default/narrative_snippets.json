@@ -1,0 +1,7 @@
+{
+  "encounter_win":["You carve a path through the dark.","Your campfire burns brighter tonight."],
+  "encounter_guard_win":["You weather the storm and outlast the threat."],
+  "encounter_consequence":["You survive, but the road demands a price."],
+  "sidequest_complete":["A side trail reveals hidden grit."],
+  "boss_survival":["The week bends, but does not break you."]
+}

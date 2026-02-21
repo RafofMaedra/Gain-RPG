@@ -1,0 +1,6 @@
+[
+  {"name":"Bramblefang","tags":["beast"],"weight":3,"hp_min":3,"hp_max":8,"damage_min":1,"damage_max":4},
+  {"name":"Ashroad Bandit","tags":["bandit"],"weight":2,"hp_min":3,"hp_max":7,"damage_min":1,"damage_max":4},
+  {"name":"Gloom Wisp","tags":["curse"],"weight":2,"hp_min":4,"hp_max":8,"damage_min":1,"damage_max":3},
+  {"name":"Crypt Hound","tags":["undead"],"weight":2,"hp_min":3,"hp_max":7,"damage_min":1,"damage_max":4}
+]
