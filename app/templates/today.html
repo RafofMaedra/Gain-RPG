@@ -123,13 +123,29 @@
           <div class="die green" id="die-green">?</div>
         </div>
 
-        <label>Push Grit (total for this roll)
-          <input type="number" min="0" max="12" id="ui-push-budget" value="0" />
-        </label>
+        <div class="push-controls">
+          <div>
+            <p class="hint">Red Die Push</p>
+            <div class="row-actions">
+              <button type="button" id="red-minus">-</button>
+              <span id="red-push-value">0</span>
+              <button type="button" id="red-plus">+</button>
+            </div>
+          </div>
+          <div>
+            <p class="hint">Green Die Push</p>
+            <div class="row-actions">
+              <button type="button" id="green-minus">-</button>
+              <span id="green-push-value">0</span>
+              <button type="button" id="green-plus">+</button>
+            </div>
+          </div>
+        </div>
 
-        <p class="hint" id="round-info">Choose approach, then roll.</p>
+        <p class="hint" id="round-info">Choose approach, roll dice, adjust pushes, then Continue.</p>
         <div class="row-actions">
           <button type="button" id="roll-combat">Roll Dice</button>
+          <button type="button" id="commit-round" style="display:none;">Continue</button>
           <button type="button" id="continue-after-fight" style="display:none;">Continue</button>
           <button type="button" id="close-combat-modal">Close</button>
         </div>
@@ -146,11 +162,18 @@
 
   const closeBtn = document.getElementById('close-combat-modal');
   const rollBtn = document.getElementById('roll-combat');
+  const commitBtn = document.getElementById('commit-round');
   const continueBtn = document.getElementById('continue-after-fight');
   const dieRed = document.getElementById('die-red');
   const dieGreen = document.getElementById('die-green');
-  const pushInput = document.getElementById('ui-push-budget');
   const info = document.getElementById('round-info');
+
+  const redMinus = document.getElementById('red-minus');
+  const redPlus = document.getElementById('red-plus');
+  const greenMinus = document.getElementById('green-minus');
+  const greenPlus = document.getElementById('green-plus');
+  const redPushValue = document.getElementById('red-push-value');
+  const greenPushValue = document.getElementById('green-push-value');
 
   const ui = {
     threatName: document.getElementById('modal-threat-name'),
@@ -163,13 +186,25 @@
   };
 
   let approach = 'fight';
-  let status = null;
+  let preview = null;
+  let pushes = { red: 0, green: 0 };
 
   const setApproach = (value) => {
     approach = value;
     document.querySelectorAll('.approach-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.approach === value);
     });
+  };
+
+  const syncPushUi = () => {
+    redPushValue.textContent = String(pushes.red);
+    greenPushValue.textContent = String(pushes.green);
+    redMinus.disabled = pushes.red <= 0;
+    greenMinus.disabled = pushes.green <= 0;
+    const maxRed = (preview?.max_pushes?.[0] || 0);
+    const maxGreen = (preview?.max_pushes?.[1] || 0);
+    redPlus.disabled = !preview || pushes.red >= maxRed;
+    greenPlus.disabled = !preview || pushes.green >= maxGreen;
   };
 
   const animateDice = async () => {
@@ -180,8 +215,9 @@
     }
   };
 
-  const refreshUi = (payload) => {
-    status = payload;
+  const refreshStatus = async () => {
+    const response = await fetch('/api/encounter/status');
+    const payload = await response.json();
     const encounter = payload.encounter || {};
     const result = payload.result || {};
     const last = result.last_round || {};
@@ -193,26 +229,28 @@
     ui.damage.textContent = String(last.threat_damage_after_barrier || 0);
     ui.barrier.textContent = String(last.barrier_total || 0);
 
-    if (Array.isArray(last.player_final_dice) && last.player_final_dice.length >= 2) {
-      dieRed.textContent = String(last.player_final_dice[0]);
-      dieGreen.textContent = String(last.player_final_dice[1]);
-    }
-
     if (result.complete) {
       info.textContent = `Fight ended: ${String(result.outcome || 'complete').replaceAll('_', ' ')}. Openings: ${result.openings || 0}.`;
       rollBtn.style.display = 'none';
+      commitBtn.style.display = 'none';
       continueBtn.style.display = 'inline-block';
     }
   };
 
-  const fetchStatus = async () => {
-    const response = await fetch('/api/encounter/status');
-    const payload = await response.json();
-    refreshUi(payload);
-  };
+  redMinus.addEventListener('click', () => { pushes.red = Math.max(0, pushes.red - 1); syncPushUi(); });
+  redPlus.addEventListener('click', () => { pushes.red += 1; syncPushUi(); });
+  greenMinus.addEventListener('click', () => { pushes.green = Math.max(0, pushes.green - 1); syncPushUi(); });
+  greenPlus.addEventListener('click', () => { pushes.green += 1; syncPushUi(); });
 
   document.querySelectorAll('.approach-btn').forEach((btn) => {
-    btn.addEventListener('click', () => setApproach(btn.dataset.approach));
+    btn.addEventListener('click', () => {
+      setApproach(btn.dataset.approach);
+      preview = null;
+      pushes = { red: 0, green: 0 };
+      syncPushUi();
+      commitBtn.style.display = 'none';
+      rollBtn.style.display = 'inline-block';
+    });
   });
 
   rollBtn.addEventListener('click', async () => {
@@ -222,7 +260,36 @@
 
     const body = new URLSearchParams();
     body.set('action', approach);
-    body.set('push_budget', String(pushInput.value || 0));
+    const response = await fetch('/api/encounter/preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body,
+    });
+    preview = await response.json();
+    if (preview.complete) {
+      await refreshStatus();
+      rollBtn.disabled = false;
+      return;
+    }
+
+    dieRed.textContent = String(preview.base_dice?.[0] ?? '?');
+    dieGreen.textContent = String(preview.base_dice?.[1] ?? '?');
+    pushes = { red: 0, green: 0 };
+    syncPushUi();
+    info.textContent = `Round ${preview.round}: base dice ${preview.base_dice}. Adjust pushes, then Continue to commit.`;
+    commitBtn.style.display = 'inline-block';
+    rollBtn.style.display = 'none';
+    rollBtn.disabled = false;
+  });
+
+  commitBtn.addEventListener('click', async () => {
+    if (!preview) return;
+    commitBtn.disabled = true;
+    const body = new URLSearchParams();
+    body.set('action', approach);
+    body.set('push_red', String(pushes.red));
+    body.set('push_green', String(pushes.green));
+    body.set('push_budget', String(pushes.red + pushes.green));
     body.set('tempo_bonus', '0');
 
     const response = await fetch('/api/encounter/step', {
@@ -231,22 +298,34 @@
       body,
     });
     const payload = await response.json();
-    refreshUi(payload);
     const last = payload.result?.last_round || {};
-    info.textContent = `Rolled ${last.player_final_dice || '[]'} -> ${last.successes || 0} successes. Threat rolled ${last.threat_damage_rolls || '[]'}, damage ${last.threat_damage_after_barrier || 0}.`;
-    rollBtn.disabled = false;
+    if (Array.isArray(last.player_final_dice) && last.player_final_dice.length >= 2) {
+      dieRed.textContent = String(last.player_final_dice[0]);
+      dieGreen.textContent = String(last.player_final_dice[1]);
+    }
+    info.textContent = `Committed: ${last.successes || 0} successes. Threat rolled ${last.threat_damage_rolls || '[]'}; barrier ${last.barrier_total || 0}; damage ${last.threat_damage_after_barrier || 0}.`;
+    preview = null;
+    pushes = { red: 0, green: 0 };
+    syncPushUi();
+    commitBtn.style.display = 'none';
+    rollBtn.style.display = 'inline-block';
+    await refreshStatus();
+    commitBtn.disabled = false;
   });
 
-  continueBtn.addEventListener('click', () => {
-    window.location.reload();
-  });
+  continueBtn.addEventListener('click', () => window.location.reload());
 
   const openModal = async () => {
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
+    setApproach('fight');
+    preview = null;
+    pushes = { red: 0, green: 0 };
+    syncPushUi();
+    commitBtn.style.display = 'none';
     rollBtn.style.display = 'inline-block';
     continueBtn.style.display = 'none';
-    await fetchStatus();
+    await refreshStatus();
   };
 
   const closeModal = () => {

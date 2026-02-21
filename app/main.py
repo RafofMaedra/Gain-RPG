@@ -16,6 +16,7 @@ from app.db import (
     equip_inventory_item,
     export_save_data,
     get_or_create_daily_roll,
+    get_encounter_round_preview,
     get_or_create_sidequest,
     get_player,
     get_progress_snapshot,
@@ -129,8 +130,8 @@ def encounter_auto() -> RedirectResponse:
 
 
 @app.post("/encounter/manual")
-def encounter_manual(action: str = Form(...), tempo_bonus: int = Form(0), push_budget: int = Form(0)) -> RedirectResponse:
-    resolve_encounter(today_key(), action=action, tempo_bonus=max(0, min(2, tempo_bonus)), push_budget=max(0, min(6, push_budget)))
+def encounter_manual(action: str = Form(...), tempo_bonus: int = Form(0), push_budget: int = Form(0), push_red: int = Form(0), push_green: int = Form(0)) -> RedirectResponse:
+    resolve_encounter(today_key(), action=action, tempo_bonus=max(0, min(2, tempo_bonus)), push_budget=max(0, min(6, push_budget)), push_red=max(0, min(6, push_red)), push_green=max(0, min(6, push_green)))
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -143,10 +144,17 @@ def encounter_status() -> JSONResponse:
     return JSONResponse({"encounter": roll.get("encounter", {}), "result": roll.get("result"), "player": {"grit_current": player.get("grit_current"), "grit_max": player.get("grit_max")}})
 
 
-@app.post("/api/encounter/step", response_class=JSONResponse)
-def encounter_step(action: str = Form(...), push_budget: int = Form(0), tempo_bonus: int = Form(0)) -> JSONResponse:
+@app.post("/api/encounter/preview", response_class=JSONResponse)
+def encounter_preview(action: str = Form(...)) -> JSONResponse:
     today = today_key()
-    result = resolve_encounter(today, action=action, push_budget=max(0, min(12, push_budget)), tempo_bonus=max(0, min(2, tempo_bonus)))
+    preview = get_encounter_round_preview(today, action=action)
+    return JSONResponse(preview)
+
+
+@app.post("/api/encounter/step", response_class=JSONResponse)
+def encounter_step(action: str = Form(...), push_budget: int = Form(0), tempo_bonus: int = Form(0), push_red: int = Form(0), push_green: int = Form(0)) -> JSONResponse:
+    today = today_key()
+    result = resolve_encounter(today, action=action, push_budget=max(0, min(12, push_budget)), tempo_bonus=max(0, min(2, tempo_bonus)), push_red=max(0, min(6, push_red)), push_green=max(0, min(6, push_green)))
     player = get_player()
     roll = get_or_create_daily_roll(today)
     return JSONResponse({"encounter": roll.get("encounter", {}), "result": result, "player": {"grit_current": player.get("grit_current"), "grit_max": player.get("grit_max")}})

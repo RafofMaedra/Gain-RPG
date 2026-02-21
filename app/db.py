@@ -714,7 +714,41 @@ def _compose_frontier_narrative(
     return f"{sentence1} {sentence2}".strip()
 
 
-def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0, push_budget: int = 0) -> dict:
+def get_encounter_round_preview(for_date: str, action: str) -> dict:
+    conn = get_conn()
+    try:
+        roll = get_or_create_daily_roll(for_date)
+        encounter = roll["encounter"]
+        row = conn.execute("SELECT result_json FROM daily_roll WHERE date = ?", (for_date,)).fetchone()
+        state = _parse_json(row["result_json"], None) if row else None
+        player = conn.execute("SELECT * FROM player WHERE id = 1").fetchone()
+        assert player is not None
+        combat_stats = _combat_stats_from_player(conn, player)
+        if state and state.get("complete"):
+            return {"complete": True}
+
+        accumulated = int((state or {}).get("accumulated_successes", 0))
+        round_num = int((state or {}).get("round", 0)) + 1
+        grit_loss = int((state or {}).get("grit_loss", 0))
+        starting_grit_pool = player["grit_current"] + combat_stats["grit_bonus"]
+        grit_left = max(0, starting_grit_pool - grit_loss)
+        player_seed = [for_date, "combat", str(round_num), "player", action, str(accumulated)]
+        rng = random.Random(stable_seed(*player_seed))
+        base_dice = [rng.randint(1, 6) for _ in range(combat_stats["combat_dice"])]
+        max_pushes = [min(6 - die, grit_left) for die in base_dice]
+        return {
+            "complete": False,
+            "round": round_num,
+            "base_dice": base_dice,
+            "max_pushes": max_pushes,
+            "grit_left": grit_left,
+            "success_threshold": max(2, min(5, encounter.get("success_threshold", 3))),
+        }
+    finally:
+        conn.close()
+
+
+def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0, push_budget: int = 0, push_red: int = 0, push_green: int = 0) -> dict:
     conn = get_conn()
     try:
         roll = get_or_create_daily_roll(for_date)
@@ -765,7 +799,7 @@ def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0,
             dice = [rng.randint(1, 6) for _ in range(dice_count)]
             return dice, sum(dice)
 
-        def do_round(chosen: str, manual_push_budget: int = 0) -> None:
+        def do_round(chosen: str, manual_push_budget: int = 0, manual_pushes: list[int] | None = None) -> None:
             state["round"] += 1
             state["last_action"] = chosen
             st = max(2, min(5, encounter.get("success_threshold", 3)))
@@ -796,8 +830,20 @@ def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0,
                                 break
                 final_dice, spent = _apply_pushes(base_dice, max_push)
             else:
-                spend_cap = max(0, min(grit_left, manual_push_budget + tempo_bonus))
-                final_dice, spent = _apply_pushes(base_dice, spend_cap)
+                if manual_pushes:
+                    desired = [max(0, int(v)) for v in manual_pushes[: len(base_dice)]]
+                    if len(desired) < len(base_dice):
+                        desired.extend([0] * (len(base_dice) - len(desired)))
+                    desired[0] += max(0, tempo_bonus)
+                    final_dice = base_dice[:]
+                    spent = 0
+                    for idx, want in enumerate(desired):
+                        can = min(max(0, want), 6 - final_dice[idx], grit_left - spent)
+                        final_dice[idx] += can
+                        spent += can
+                else:
+                    spend_cap = max(0, min(grit_left, manual_push_budget + tempo_bonus))
+                    final_dice, spent = _apply_pushes(base_dice, spend_cap)
 
             if spent > 0:
                 state["grit_loss"] += spent
@@ -892,7 +938,7 @@ def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0,
                 choice = "guard" if grit_left <= encounter.get("damage", 1) + 1 else "strike"
                 do_round(choice)
         elif not state["complete"] and state["grit_loss"] < starting_grit_pool:
-            do_round(action, push_budget)
+            do_round(action, push_budget, [push_red, push_green])
 
         if state["complete"] and not state["applied"]:
             workout = ensure_workout_log(for_date)
