@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent / "theme_packs"
 def _load_json(path: Path, fallback):
     if not path.exists():
         return fallback
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def stable_seed(*parts: str) -> int:
