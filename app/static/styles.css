@@ -141,3 +141,40 @@ button[disabled] { opacity: 0.6; }
   0% { transform: scale(0.98); box-shadow: 0 0 0 rgba(240, 100, 120, 0.2); }
   100% { transform: scale(1); box-shadow: 0 0 24px rgba(240, 100, 120, 0.25); }
 }
+
+.combat-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.approach-btn.active {
+  outline: 2px solid #8db3ff;
+}
+
+.dice-row {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.die {
+  width: 64px;
+  height: 64px;
+  border-radius: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  font-weight: 800;
+  box-shadow: inset 0 -6px 0 rgba(0,0,0,0.2), 0 6px 20px rgba(0,0,0,0.2);
+}
+
+.die.red {
+  background: linear-gradient(155deg, #f04b61, #b6283f);
+}
+
+.die.green {
+  background: linear-gradient(155deg, #5ad47a, #2f9f56);
+}

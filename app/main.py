@@ -134,6 +134,24 @@ def encounter_manual(action: str = Form(...), tempo_bonus: int = Form(0), push_b
     return RedirectResponse(url="/", status_code=303)
 
 
+
+@app.get("/api/encounter/status", response_class=JSONResponse)
+def encounter_status() -> JSONResponse:
+    today = today_key()
+    roll = get_or_create_daily_roll(today)
+    player = get_player()
+    return JSONResponse({"encounter": roll.get("encounter", {}), "result": roll.get("result"), "player": {"grit_current": player.get("grit_current"), "grit_max": player.get("grit_max")}})
+
+
+@app.post("/api/encounter/step", response_class=JSONResponse)
+def encounter_step(action: str = Form(...), push_budget: int = Form(0), tempo_bonus: int = Form(0)) -> JSONResponse:
+    today = today_key()
+    result = resolve_encounter(today, action=action, push_budget=max(0, min(12, push_budget)), tempo_bonus=max(0, min(2, tempo_bonus)))
+    player = get_player()
+    roll = get_or_create_daily_roll(today)
+    return JSONResponse({"encounter": roll.get("encounter", {}), "result": result, "player": {"grit_current": player.get("grit_current"), "grit_max": player.get("grit_max")}})
+
+
 @app.post("/encounter/refresh")
 def encounter_refresh() -> RedirectResponse:
     if get_player()["testing_mode"]:

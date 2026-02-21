@@ -101,26 +101,38 @@
     <div id="combat-modal" class="combat-modal" aria-hidden="true">
       <div class="combat-panel">
         <h4>Combat Sequence</h4>
-        <p>Hit the shown sequence in order to gain momentum for your next action.</p>
-        <p id="combo-sequence" class="combo"></p>
-        <p id="combo-feedback" class="hint"></p>
-        <div class="row-actions">
-          <button type="button" class="combo-btn" data-move="strike">Strike</button>
-          <button type="button" class="combo-btn" data-move="guard">Guard</button>
+        <p><strong id="modal-threat-name"></strong></p>
+        <p class="hint" id="modal-threat-meta"></p>
+
+        <div class="combat-stats-grid">
+          <p>Progress: <strong id="ui-successes">0</strong></p>
+          <p>Defeat / Overwhelm: <strong id="ui-targets">0 / 0</strong></p>
+          <p>Current Grit: <strong id="ui-grit">0</strong></p>
+          <p>Last Damage: <strong id="ui-damage">0</strong></p>
+          <p>Barrier: <strong id="ui-barrier">0</strong></p>
         </div>
 
-        <form method="post" action="/encounter/manual" class="grid-form">
-          <input type="hidden" name="tempo_bonus" id="tempo-bonus" value="0" />
-          <label>Push Grit (0-6)
-            <input type="number" min="0" max="6" name="push_budget" value="0" />
-          </label>
-          <div class="row-actions">
-            <button type="submit" name="action" value="strike">Commit Strike</button>
-            <button type="submit" name="action" value="guard">Commit Guard</button>
-            <button type="submit" name="action" value="flee">Attempt Flee</button>
-          </div>
-        </form>
-        <button type="button" id="close-combat-modal">Close</button>
+        <div class="row-actions">
+          <button type="button" class="approach-btn active" data-approach="fight">Choose Approach: Fight</button>
+          <button type="button" class="approach-btn" data-approach="defend">Choose Approach: Defend</button>
+          <button type="button" class="approach-btn" data-approach="flee">Choose Approach: Flee</button>
+        </div>
+
+        <div class="dice-row">
+          <div class="die red" id="die-red">?</div>
+          <div class="die green" id="die-green">?</div>
+        </div>
+
+        <label>Push Grit (total for this roll)
+          <input type="number" min="0" max="12" id="ui-push-budget" value="0" />
+        </label>
+
+        <p class="hint" id="round-info">Choose approach, then roll.</p>
+        <div class="row-actions">
+          <button type="button" id="roll-combat">Roll Dice</button>
+          <button type="button" id="continue-after-fight" style="display:none;">Continue</button>
+          <button type="button" id="close-combat-modal">Close</button>
+        </div>
       </div>
     </div>
   {% endif %}
@@ -132,27 +144,109 @@
   const openBtn = document.getElementById('open-combat-modal');
   if (!modal || !openBtn) return;
 
-  const sequenceEl = document.getElementById('combo-sequence');
-  const feedbackEl = document.getElementById('combo-feedback');
-  const tempoInput = document.getElementById('tempo-bonus');
   const closeBtn = document.getElementById('close-combat-modal');
-  const buttons = Array.from(document.querySelectorAll('.combo-btn'));
+  const rollBtn = document.getElementById('roll-combat');
+  const continueBtn = document.getElementById('continue-after-fight');
+  const dieRed = document.getElementById('die-red');
+  const dieGreen = document.getElementById('die-green');
+  const pushInput = document.getElementById('ui-push-budget');
+  const info = document.getElementById('round-info');
 
-  let pattern = [];
-  let index = 0;
-
-  const generatePattern = () => {
-    pattern = Array.from({length: 3}, () => Math.random() > 0.5 ? 'strike' : 'guard');
-    index = 0;
-    sequenceEl.textContent = 'Pattern: ' + pattern.join(' → ');
-    feedbackEl.textContent = 'Ready.';
-    tempoInput.value = '0';
+  const ui = {
+    threatName: document.getElementById('modal-threat-name'),
+    threatMeta: document.getElementById('modal-threat-meta'),
+    successes: document.getElementById('ui-successes'),
+    targets: document.getElementById('ui-targets'),
+    grit: document.getElementById('ui-grit'),
+    damage: document.getElementById('ui-damage'),
+    barrier: document.getElementById('ui-barrier'),
   };
 
-  const openModal = () => {
+  let approach = 'fight';
+  let status = null;
+
+  const setApproach = (value) => {
+    approach = value;
+    document.querySelectorAll('.approach-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.approach === value);
+    });
+  };
+
+  const animateDice = async () => {
+    for (let i = 0; i < 8; i += 1) {
+      dieRed.textContent = String(1 + Math.floor(Math.random() * 6));
+      dieGreen.textContent = String(1 + Math.floor(Math.random() * 6));
+      await new Promise((r) => setTimeout(r, 70));
+    }
+  };
+
+  const refreshUi = (payload) => {
+    status = payload;
+    const encounter = payload.encounter || {};
+    const result = payload.result || {};
+    const last = result.last_round || {};
+    ui.threatName.textContent = encounter.threat_name || 'Threat';
+    ui.threatMeta.textContent = `ST ${encounter.success_threshold || '-'} | Defeat ${encounter.defeat_target || '-'} | Overwhelm ${encounter.overwhelm_target || '-'} | Damage Dice ${encounter.damage_dice || 1}d6`;
+    ui.successes.textContent = String(result.accumulated_successes || 0);
+    ui.targets.textContent = `${encounter.defeat_target || 0} / ${encounter.overwhelm_target || 0}`;
+    ui.grit.textContent = `${payload.player?.grit_current ?? '-'} / ${payload.player?.grit_max ?? '-'}`;
+    ui.damage.textContent = String(last.threat_damage_after_barrier || 0);
+    ui.barrier.textContent = String(last.barrier_total || 0);
+
+    if (Array.isArray(last.player_final_dice) && last.player_final_dice.length >= 2) {
+      dieRed.textContent = String(last.player_final_dice[0]);
+      dieGreen.textContent = String(last.player_final_dice[1]);
+    }
+
+    if (result.complete) {
+      info.textContent = `Fight ended: ${String(result.outcome || 'complete').replaceAll('_', ' ')}. Openings: ${result.openings || 0}.`;
+      rollBtn.style.display = 'none';
+      continueBtn.style.display = 'inline-block';
+    }
+  };
+
+  const fetchStatus = async () => {
+    const response = await fetch('/api/encounter/status');
+    const payload = await response.json();
+    refreshUi(payload);
+  };
+
+  document.querySelectorAll('.approach-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setApproach(btn.dataset.approach));
+  });
+
+  rollBtn.addEventListener('click', async () => {
+    rollBtn.disabled = true;
+    info.textContent = 'Rolling...';
+    await animateDice();
+
+    const body = new URLSearchParams();
+    body.set('action', approach);
+    body.set('push_budget', String(pushInput.value || 0));
+    body.set('tempo_bonus', '0');
+
+    const response = await fetch('/api/encounter/step', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body,
+    });
+    const payload = await response.json();
+    refreshUi(payload);
+    const last = payload.result?.last_round || {};
+    info.textContent = `Rolled ${last.player_final_dice || '[]'} -> ${last.successes || 0} successes. Threat rolled ${last.threat_damage_rolls || '[]'}, damage ${last.threat_damage_after_barrier || 0}.`;
+    rollBtn.disabled = false;
+  });
+
+  continueBtn.addEventListener('click', () => {
+    window.location.reload();
+  });
+
+  const openModal = async () => {
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
-    generatePattern();
+    rollBtn.style.display = 'inline-block';
+    continueBtn.style.display = 'none';
+    await fetchStatus();
   };
 
   const closeModal = () => {
@@ -162,26 +256,6 @@
 
   openBtn.addEventListener('click', openModal);
   closeBtn.addEventListener('click', closeModal);
-
-  buttons.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const move = btn.dataset.move;
-      if (move === pattern[index]) {
-        index += 1;
-        feedbackEl.textContent = `Step ${index}/3 correct.`;
-      } else {
-        index = 0;
-        feedbackEl.textContent = 'Miss! sequence reset.';
-      }
-
-      if (index >= pattern.length) {
-        tempoInput.value = '2';
-        feedbackEl.textContent = 'Perfect combo! +2 momentum on your commit action.';
-      } else if (index === 2) {
-        tempoInput.value = '1';
-      }
-    });
-  });
 })();
 </script>
 
