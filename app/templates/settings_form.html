@@ -1,0 +1,22 @@
+<h2>Settings</h2>
+{% if saved %}
+<p class="success">Saved.</p>
+{% endif %}
+<form hx-post="/settings" hx-target="#settings-card" hx-swap="innerHTML" method="post">
+  <label>
+    Name
+    <input type="text" name="name" value="{{ player.name }}" required />
+  </label>
+
+  <label>
+    Theme pack
+    <input type="text" name="theme_pack" value="{{ player.theme_pack }}" required />
+  </label>
+
+  <label class="checkbox-row">
+    <input type="checkbox" name="testing_mode" {% if player.testing_mode %}checked{% endif %} />
+    Testing mode
+  </label>
+
+  <button type="submit">Save</button>
+</form>
