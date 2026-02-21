@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Welcome, {{ player.name }}</h2>
+  <p><strong>Level:</strong> {{ player.level }}</p>
+  <p><strong>Grit:</strong> {{ player.grit_current }} / {{ player.grit_max }}</p>
+  <p><strong>Coins:</strong> {{ player.coins }} | <strong>Tokens:</strong> {{ player.campfire_tokens }}</p>
+  <p class="hint">Milestone 1 scaffold is ready. Workout and encounter systems come next.</p>
+</section>
+{% endblock %}
