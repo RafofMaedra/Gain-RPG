@@ -16,6 +16,7 @@ from app.db import (
     equip_inventory_item,
     export_save_data,
     get_or_create_daily_roll,
+    get_encounter_round_preview,
     get_or_create_sidequest,
     get_player,
     get_progress_snapshot,
@@ -129,9 +130,41 @@ def encounter_auto() -> RedirectResponse:
 
 
 @app.post("/encounter/manual")
-def encounter_manual(action: str = Form(...)) -> RedirectResponse:
-    resolve_encounter(today_key(), action=action)
+def encounter_manual(action: str = Form(...), tempo_bonus: int = Form(0), push_budget: int = Form(0), push_red: int = Form(0), push_green: int = Form(0)) -> RedirectResponse:
+    resolve_encounter(today_key(), action=action, tempo_bonus=max(0, min(2, tempo_bonus)), push_budget=max(0, min(6, push_budget)), push_red=max(0, min(6, push_red)), push_green=max(0, min(6, push_green)))
     return RedirectResponse(url="/", status_code=303)
+
+
+
+@app.get("/api/encounter/status", response_class=JSONResponse)
+def encounter_status() -> JSONResponse:
+    today = today_key()
+    roll = get_or_create_daily_roll(today)
+    player = get_player()
+    result = roll.get("result") if isinstance(roll, dict) else None
+    live_grit = player.get("grit_current")
+    if isinstance(result, dict) and not result.get("complete"):
+        live_grit = result.get("grit_remaining_live", live_grit)
+    return JSONResponse({"encounter": roll.get("encounter", {}), "result": result, "player": {"grit_current": live_grit, "grit_max": player.get("grit_max")}})
+
+
+@app.post("/api/encounter/preview", response_class=JSONResponse)
+def encounter_preview(action: str = Form(...)) -> JSONResponse:
+    today = today_key()
+    preview = get_encounter_round_preview(today, action=action)
+    return JSONResponse(preview)
+
+
+@app.post("/api/encounter/step", response_class=JSONResponse)
+def encounter_step(action: str = Form(...), push_budget: int = Form(0), tempo_bonus: int = Form(0), push_red: int = Form(0), push_green: int = Form(0)) -> JSONResponse:
+    today = today_key()
+    result = resolve_encounter(today, action=action, push_budget=max(0, min(12, push_budget)), tempo_bonus=max(0, min(2, tempo_bonus)), push_red=max(0, min(6, push_red)), push_green=max(0, min(6, push_green)))
+    player = get_player()
+    roll = get_or_create_daily_roll(today)
+    live_grit = player.get("grit_current")
+    if isinstance(result, dict) and not result.get("complete"):
+        live_grit = result.get("grit_remaining_live", live_grit)
+    return JSONResponse({"encounter": roll.get("encounter", {}), "result": result, "player": {"grit_current": live_grit, "grit_max": player.get("grit_max")}})
 
 
 @app.post("/encounter/refresh")

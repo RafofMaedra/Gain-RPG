@@ -58,46 +58,303 @@
   </form>
 </section>
 
-<section class="card">
+<section class="card encounter-card">
   <h3>Tonight's Encounter</h3>
   <p><strong>{{ encounter.threat_name }}</strong> ({{ encounter.tag }})</p>
-  <p>Tier {{ encounter.intensity_tier }} | HP {{ encounter.hp }} | Damage {{ encounter.damage }}</p>
+  <p>Tier {{ encounter.intensity_tier }} | ST {{ encounter.success_threshold }} | Damage {{ encounter.damage }} | Defeat {{ encounter.defeat_target }} / Overwhelm {{ encounter.overwhelm_target }}</p>
   <p><strong>Location:</strong> {{ encounter.location }}</p>
   <p><strong>Situation:</strong> {{ encounter.situation }}</p>
   <p><strong>Twist:</strong> {{ encounter.twist }}</p>
+  {% if encounter.twist_effect %}
+    <p class="twist-effect"><strong>{{ encounter.twist_effect.label }}:</strong> {{ encounter.twist_effect.description }}</p>
+  {% endif %}
+  {% if encounter.trait %}
+    <p class="twist-effect"><strong>Boss Trait — {{ encounter.trait.label }}:</strong> {{ encounter.trait.description }}</p>
+  {% endif %}
   <p><strong>Stakes:</strong> {{ encounter.stakes | join(', ') }}</p>
 
   {% if encounter_result and encounter_result.complete %}
-    <p><strong>Result:</strong> {{ encounter_result.outcome }}</p>
-    <p>Grit lost: {{ encounter_result.grit_loss }}{% if encounter_result.coins_earned is defined %} | Coins earned: {{ encounter_result.coins_earned }}{% endif %}</p>
-    {% if encounter_result.narrative %}
-    <p class="hint">{{ encounter_result.narrative }}</p>
-    {% endif %}
-    <ul>
-      {% for line in encounter_result.log %}
-      <li>{{ line }}</li>
-      {% endfor %}
-    </ul>
+    <div class="result-banner {{ encounter_result.outcome }}">
+      <p><strong>Result:</strong> {{ encounter_result.outcome | replace('_', ' ') | title }}</p>
+      <p>Grit lost: {{ encounter_result.grit_loss }}{% if encounter_result.coins_earned is defined %} | Coins earned: {{ encounter_result.coins_earned }}{% endif %}</p>
+      {% if encounter_result.narrative %}
+        <p class="hint">{{ encounter_result.narrative }}</p>
+      {% endif %}
+      <ul class="encounter-log">
+        {% for line in encounter_result.log %}
+          <li>{{ line }}</li>
+        {% endfor %}
+      </ul>
+    </div>
   {% else %}
     {% if encounter_result %}
-      <p><strong>In Progress:</strong> Threat HP {{ encounter_result.threat_hp }} | Rounds {{ encounter_result.round }}</p>
-      <p>Grit lost so far: {{ encounter_result.grit_loss }}</p>
+      <p><strong>In Progress:</strong> Progress {{ encounter_result.accumulated_successes }} successes | Rounds {{ encounter_result.round }}</p>
+      <p>Grit spent/lost so far: {{ encounter_result.grit_loss }}</p>
     {% endif %}
+
+    <button type="button" id="open-combat-modal">Open Combat Encounter</button>
 
     <form method="post" action="/encounter/auto">
       <button type="submit">Auto Resolve</button>
     </form>
-    <form method="post" action="/encounter/manual" class="row-actions">
-      <button type="submit" name="action" value="strike">Strike</button>
-      <button type="submit" name="action" value="guard">Guard</button>
-    </form>
-    {% if player.testing_mode %}
-    <form method="post" action="/encounter/refresh">
-      <button type="submit">Testing: Refresh Encounter</button>
-    </form>
-    {% endif %}
+
+    <div id="combat-modal" class="combat-modal" aria-hidden="true">
+      <div class="combat-panel">
+        <h4>Combat Sequence</h4>
+        <p><strong id="modal-threat-name"></strong></p>
+        <p class="hint" id="modal-threat-meta"></p>
+
+        <div class="combat-stats-grid">
+          <p>Progress: <strong id="ui-successes">0</strong></p>
+          <p>Defeat / Overwhelm: <strong id="ui-targets">0 / 0</strong></p>
+          <p>Current Grit: <strong id="ui-grit">0</strong></p>
+          <p>Last Damage: <strong id="ui-damage">0</strong></p>
+          <p>Barrier: <strong id="ui-barrier">0</strong></p>
+        </div>
+
+        <div class="row-actions">
+          <button type="button" class="approach-btn active" data-approach="fight">Fight</button>
+          <button type="button" class="approach-btn" data-approach="defend">Defend</button>
+          <button type="button" class="approach-btn" data-approach="flee">Flee</button>
+        </div>
+
+        <div class="dice-row">
+          <div class="die red" id="die-red">?</div>
+          <div class="die green" id="die-green">?</div>
+        </div>
+
+        <div class="push-controls">
+          <div>
+            <p class="hint">Red Die Push</p>
+            <div class="row-actions">
+              <button type="button" id="red-minus">-</button>
+              <span id="red-push-value">0</span>
+              <button type="button" id="red-plus">+</button>
+            </div>
+          </div>
+          <div>
+            <p class="hint">Green Die Push</p>
+            <div class="row-actions">
+              <button type="button" id="green-minus">-</button>
+              <span id="green-push-value">0</span>
+              <button type="button" id="green-plus">+</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="hint" id="round-info">Choose approach, roll dice, adjust pushes, then Continue.</p>
+        <div class="row-actions">
+          <button type="button" id="roll-combat">Roll Dice</button>
+          <button type="button" id="commit-round" style="display:none;">Continue</button>
+          <button type="button" id="continue-after-fight" style="display:none;">Continue</button>
+          <button type="button" id="close-combat-modal">Close</button>
+        </div>
+
+        <div id="combat-result-screen" class="combat-result-screen" style="display:none;">
+          <h5 id="result-title">Victory</h5>
+          <p id="result-summary" class="hint"></p>
+          <button type="button" id="result-continue">Continue</button>
+        </div>
+      </div>
+    </div>
   {% endif %}
 </section>
+
+<script>
+(() => {
+  const modal = document.getElementById('combat-modal');
+  const openBtn = document.getElementById('open-combat-modal');
+  if (!modal || !openBtn) return;
+
+  const closeBtn = document.getElementById('close-combat-modal');
+  const rollBtn = document.getElementById('roll-combat');
+  const commitBtn = document.getElementById('commit-round');
+  const continueBtn = document.getElementById('continue-after-fight');
+  const resultScreen = document.getElementById('combat-result-screen');
+  const resultTitle = document.getElementById('result-title');
+  const resultSummary = document.getElementById('result-summary');
+  const resultContinue = document.getElementById('result-continue');
+  const dieRed = document.getElementById('die-red');
+  const dieGreen = document.getElementById('die-green');
+  const info = document.getElementById('round-info');
+
+  const redMinus = document.getElementById('red-minus');
+  const redPlus = document.getElementById('red-plus');
+  const greenMinus = document.getElementById('green-minus');
+  const greenPlus = document.getElementById('green-plus');
+  const redPushValue = document.getElementById('red-push-value');
+  const greenPushValue = document.getElementById('green-push-value');
+
+  const ui = {
+    threatName: document.getElementById('modal-threat-name'),
+    threatMeta: document.getElementById('modal-threat-meta'),
+    successes: document.getElementById('ui-successes'),
+    targets: document.getElementById('ui-targets'),
+    grit: document.getElementById('ui-grit'),
+    damage: document.getElementById('ui-damage'),
+    barrier: document.getElementById('ui-barrier'),
+  };
+
+  let approach = 'fight';
+  let preview = null;
+  let pushes = { red: 0, green: 0 };
+
+  const setApproach = (value) => {
+    approach = value;
+    document.querySelectorAll('.approach-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.approach === value);
+    });
+  };
+
+  const syncPushUi = () => {
+    redPushValue.textContent = String(pushes.red);
+    greenPushValue.textContent = String(pushes.green);
+    redMinus.disabled = pushes.red <= 0;
+    greenMinus.disabled = pushes.green <= 0;
+    const maxRed = (preview?.max_pushes?.[0] || 0);
+    const maxGreen = (preview?.max_pushes?.[1] || 0);
+    redPlus.disabled = !preview || pushes.red >= maxRed;
+    greenPlus.disabled = !preview || pushes.green >= maxGreen;
+  };
+
+  const animateDice = async () => {
+    for (let i = 0; i < 8; i += 1) {
+      dieRed.textContent = String(1 + Math.floor(Math.random() * 6));
+      dieGreen.textContent = String(1 + Math.floor(Math.random() * 6));
+      await new Promise((r) => setTimeout(r, 70));
+    }
+  };
+
+  const refreshStatus = async () => {
+    const response = await fetch('/api/encounter/status');
+    const payload = await response.json();
+    const encounter = payload.encounter || {};
+    const result = payload.result || {};
+    const last = result.last_round || {};
+    ui.threatName.textContent = encounter.threat_name || 'Threat';
+    ui.threatMeta.textContent = `ST ${encounter.success_threshold || '-'} | Defeat ${encounter.defeat_target || '-'} | Overwhelm ${encounter.overwhelm_target || '-'} | Damage Dice ${encounter.damage_dice || 1}d6`;
+    ui.successes.textContent = String(result.accumulated_successes || 0);
+    ui.targets.textContent = `${encounter.defeat_target || 0} / ${encounter.overwhelm_target || 0}`;
+    ui.grit.textContent = `${payload.player?.grit_current ?? '-'} / ${payload.player?.grit_max ?? '-'}`;
+    ui.damage.textContent = String(last.threat_damage_after_barrier || 0);
+    ui.barrier.textContent = String(last.barrier_total || 0);
+
+    if (result.complete) {
+      const outcomeText = String(result.outcome || 'complete').replaceAll('_', ' ');
+      info.textContent = `Fight ended: ${outcomeText}. Openings: ${result.openings || 0}.`;
+      rollBtn.style.display = 'none';
+      commitBtn.style.display = 'none';
+      continueBtn.style.display = 'none';
+      resultScreen.style.display = 'block';
+      resultTitle.textContent = (result.outcome === 'defeat' || result.outcome === 'overwhelm') ? 'Victory' : 'Encounter Ended';
+      resultSummary.textContent = `Outcome: ${outcomeText}. Final damage: ${last.threat_damage_after_barrier || 0}. Total successes: ${result.accumulated_successes || 0}.`;
+    } else {
+      resultScreen.style.display = 'none';
+    }
+  };
+
+  redMinus.addEventListener('click', () => { pushes.red = Math.max(0, pushes.red - 1); syncPushUi(); });
+  redPlus.addEventListener('click', () => { pushes.red += 1; syncPushUi(); });
+  greenMinus.addEventListener('click', () => { pushes.green = Math.max(0, pushes.green - 1); syncPushUi(); });
+  greenPlus.addEventListener('click', () => { pushes.green += 1; syncPushUi(); });
+
+  document.querySelectorAll('.approach-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setApproach(btn.dataset.approach);
+      preview = null;
+      pushes = { red: 0, green: 0 };
+      syncPushUi();
+      commitBtn.style.display = 'none';
+      rollBtn.style.display = 'inline-block';
+    });
+  });
+
+  rollBtn.addEventListener('click', async () => {
+    rollBtn.disabled = true;
+    info.textContent = 'Rolling...';
+    await animateDice();
+
+    const body = new URLSearchParams();
+    body.set('action', approach);
+    const response = await fetch('/api/encounter/preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body,
+    });
+    preview = await response.json();
+    if (preview.complete) {
+      await refreshStatus();
+      rollBtn.disabled = false;
+      return;
+    }
+
+    dieRed.textContent = String(preview.base_dice?.[0] ?? '?');
+    dieGreen.textContent = String(preview.base_dice?.[1] ?? '?');
+    pushes = { red: 0, green: 0 };
+    syncPushUi();
+    info.textContent = `Round ${preview.round}: base dice ${preview.base_dice}. Adjust pushes, then Continue to commit.`;
+    commitBtn.style.display = 'inline-block';
+    rollBtn.style.display = 'none';
+    rollBtn.disabled = false;
+  });
+
+  commitBtn.addEventListener('click', async () => {
+    if (!preview) return;
+    commitBtn.disabled = true;
+    const body = new URLSearchParams();
+    body.set('action', approach);
+    body.set('push_red', String(pushes.red));
+    body.set('push_green', String(pushes.green));
+    body.set('push_budget', String(pushes.red + pushes.green));
+    body.set('tempo_bonus', '0');
+
+    const response = await fetch('/api/encounter/step', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body,
+    });
+    const payload = await response.json();
+    const last = payload.result?.last_round || {};
+    if (Array.isArray(last.player_final_dice) && last.player_final_dice.length >= 2) {
+      dieRed.textContent = String(last.player_final_dice[0]);
+      dieGreen.textContent = String(last.player_final_dice[1]);
+    }
+    info.textContent = `Committed: ${last.successes || 0} successes. Threat rolled ${last.threat_damage_rolls || '[]'}; barrier ${last.barrier_total || 0}; damage ${last.threat_damage_after_barrier || 0}.`;
+    preview = null;
+    pushes = { red: 0, green: 0 };
+    syncPushUi();
+    commitBtn.style.display = 'none';
+    rollBtn.style.display = 'inline-block';
+    await refreshStatus();
+    commitBtn.disabled = false;
+  });
+
+  continueBtn.addEventListener('click', () => window.location.reload());
+  resultContinue.addEventListener('click', () => window.location.reload());
+
+  const openModal = async () => {
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    setApproach('fight');
+    preview = null;
+    pushes = { red: 0, green: 0 };
+    syncPushUi();
+    commitBtn.style.display = 'none';
+    rollBtn.style.display = 'inline-block';
+    continueBtn.style.display = 'none';
+    resultScreen.style.display = 'none';
+    await refreshStatus();
+  };
+
+  const closeModal = () => {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  };
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+})();
+</script>
 
 <section class="card">
   <h3>Side Quest</h3>
