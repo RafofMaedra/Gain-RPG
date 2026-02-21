@@ -452,9 +452,9 @@ def _build_encounter(
     stakes = rng.sample(stakes_pool, k=min(stakes_count, len(stakes_pool))) if stakes_pool else []
 
     success_threshold = 2 + (1 if tier >= 2 else 0) + (1 if is_boss else 0)
-    damage = rng.randint(2, 4) if is_boss else rng.randint(1, 4)
-    defeat_target = 4 + tier + (1 if is_boss else 0)
-    overwhelm_target = defeat_target + (3 if is_boss else 2)
+    damage = rng.randint(2, 3) if is_boss else rng.randint(1, 3)
+    defeat_target = 3 + tier + (1 if is_boss else 0)
+    overwhelm_target = defeat_target + (2 if is_boss else 1)
 
     twist_effect = _roll_twist_effect(rng)
     if twist_effect["key"] == "lower_st":
@@ -485,7 +485,7 @@ def _build_encounter(
         "stakes": stakes,
         "success_threshold": success_threshold,
         "damage": damage,
-        "damage_dice": 2 if is_boss else 1,
+        "damage_dice": 1,
         "defeat_target": defeat_target,
         "overwhelm_target": overwhelm_target,
     }

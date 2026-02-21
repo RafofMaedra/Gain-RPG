@@ -113,9 +113,9 @@
         </div>
 
         <div class="row-actions">
-          <button type="button" class="approach-btn active" data-approach="fight">Choose Approach: Fight</button>
-          <button type="button" class="approach-btn" data-approach="defend">Choose Approach: Defend</button>
-          <button type="button" class="approach-btn" data-approach="flee">Choose Approach: Flee</button>
+          <button type="button" class="approach-btn active" data-approach="fight">Fight</button>
+          <button type="button" class="approach-btn" data-approach="defend">Defend</button>
+          <button type="button" class="approach-btn" data-approach="flee">Flee</button>
         </div>
 
         <div class="dice-row">
@@ -149,6 +149,12 @@
           <button type="button" id="continue-after-fight" style="display:none;">Continue</button>
           <button type="button" id="close-combat-modal">Close</button>
         </div>
+
+        <div id="combat-result-screen" class="combat-result-screen" style="display:none;">
+          <h5 id="result-title">Victory</h5>
+          <p id="result-summary" class="hint"></p>
+          <button type="button" id="result-continue">Continue</button>
+        </div>
       </div>
     </div>
   {% endif %}
@@ -164,6 +170,10 @@
   const rollBtn = document.getElementById('roll-combat');
   const commitBtn = document.getElementById('commit-round');
   const continueBtn = document.getElementById('continue-after-fight');
+  const resultScreen = document.getElementById('combat-result-screen');
+  const resultTitle = document.getElementById('result-title');
+  const resultSummary = document.getElementById('result-summary');
+  const resultContinue = document.getElementById('result-continue');
   const dieRed = document.getElementById('die-red');
   const dieGreen = document.getElementById('die-green');
   const info = document.getElementById('round-info');
@@ -230,10 +240,16 @@
     ui.barrier.textContent = String(last.barrier_total || 0);
 
     if (result.complete) {
-      info.textContent = `Fight ended: ${String(result.outcome || 'complete').replaceAll('_', ' ')}. Openings: ${result.openings || 0}.`;
+      const outcomeText = String(result.outcome || 'complete').replaceAll('_', ' ');
+      info.textContent = `Fight ended: ${outcomeText}. Openings: ${result.openings || 0}.`;
       rollBtn.style.display = 'none';
       commitBtn.style.display = 'none';
-      continueBtn.style.display = 'inline-block';
+      continueBtn.style.display = 'none';
+      resultScreen.style.display = 'block';
+      resultTitle.textContent = (result.outcome === 'defeat' || result.outcome === 'overwhelm') ? 'Victory' : 'Encounter Ended';
+      resultSummary.textContent = `Outcome: ${outcomeText}. Final damage: ${last.threat_damage_after_barrier || 0}. Total successes: ${result.accumulated_successes || 0}.`;
+    } else {
+      resultScreen.style.display = 'none';
     }
   };
 
@@ -314,6 +330,7 @@
   });
 
   continueBtn.addEventListener('click', () => window.location.reload());
+  resultContinue.addEventListener('click', () => window.location.reload());
 
   const openModal = async () => {
     modal.classList.add('open');
@@ -325,6 +342,7 @@
     commitBtn.style.display = 'none';
     rollBtn.style.display = 'inline-block';
     continueBtn.style.display = 'none';
+    resultScreen.style.display = 'none';
     await refreshStatus();
   };
 
