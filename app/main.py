@@ -129,8 +129,8 @@ def encounter_auto() -> RedirectResponse:
 
 
 @app.post("/encounter/manual")
-def encounter_manual(action: str = Form(...)) -> RedirectResponse:
-    resolve_encounter(today_key(), action=action)
+def encounter_manual(action: str = Form(...), tempo_bonus: int = Form(0), push_budget: int = Form(0)) -> RedirectResponse:
+    resolve_encounter(today_key(), action=action, tempo_bonus=max(0, min(2, tempo_bonus)), push_budget=max(0, min(6, push_budget)))
     return RedirectResponse(url="/", status_code=303)
 
 

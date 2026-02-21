@@ -78,3 +78,66 @@ button[disabled] { opacity: 0.6; }
 
 .success { color: #8dffb2; }
 .hint { opacity: 0.8; }
+
+.encounter-card .twist-effect {
+  padding: 0.5rem;
+  border-left: 3px solid #d9a441;
+  background: #231f16;
+}
+
+.result-banner {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.6rem;
+}
+
+.result-banner.overwhelm,
+.result-banner.defeat {
+  border: 1px solid #3aa76d;
+  background: linear-gradient(120deg, #1b3a2a, #1f2f3d);
+  animation: pulse-win 1.4s ease-out;
+}
+
+.result-banner.survived_with_consequence,
+.result-banner.fled {
+  border: 1px solid #9f4f5a;
+  background: linear-gradient(120deg, #3f1d24, #2a2333);
+  animation: pulse-loss 1.4s ease-out;
+}
+
+.encounter-log { margin: 0.5rem 0 0; }
+
+.combat-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 6, 12, 0.72);
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.combat-modal.open { display: flex; }
+
+.combat-panel {
+  width: min(560px, 94vw);
+  border: 1px solid #445272;
+  background: #141d2b;
+  border-radius: 0.8rem;
+  padding: 1rem;
+}
+
+.combo {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+@keyframes pulse-win {
+  0% { transform: scale(0.98); box-shadow: 0 0 0 rgba(90, 230, 140, 0.2); }
+  100% { transform: scale(1); box-shadow: 0 0 24px rgba(90, 230, 140, 0.25); }
+}
+
+@keyframes pulse-loss {
+  0% { transform: scale(0.98); box-shadow: 0 0 0 rgba(240, 100, 120, 0.2); }
+  100% { transform: scale(1); box-shadow: 0 0 24px rgba(240, 100, 120, 0.25); }
+}

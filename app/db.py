@@ -383,6 +383,44 @@ def _is_sunday(iso_date: str) -> bool:
     return date.fromisoformat(iso_date).weekday() == 6
 
 
+def _roll_twist_effect(rng: random.Random) -> dict:
+    effects = [
+        {"key": "lower_st", "label": "Opening in the Defense", "description": "Success Threshold is reduced by 1 this encounter.", "weight": 2},
+        {"key": "raise_st", "label": "Fog of War", "description": "Success Threshold is increased by 1 this encounter.", "weight": 2},
+        {"key": "extra_damage", "label": "Escalation", "description": "Threat deals +1 damage on every hit.", "weight": 2},
+        {"key": "wider_overwhelm", "label": "Shifting Ground", "description": "Overwhelm target is +1 harder.", "weight": 1},
+    ]
+    total = sum(effect["weight"] for effect in effects)
+    pick = rng.randint(1, total)
+    cursor = 0
+    for effect in effects:
+        cursor += effect["weight"]
+        if pick <= cursor:
+            return {k: effect[k] for k in ["key", "label", "description"]}
+    return {k: effects[0][k] for k in ["key", "label", "description"]}
+
+
+def _boss_trait(rng: random.Random) -> dict:
+    traits = [
+        {
+            "key": "every_3rd_round_plus_1_damage",
+            "label": "Relentless Assault",
+            "description": "Every 3rd round the boss deals +1 damage.",
+        },
+        {
+            "key": "guard_twice_st_up",
+            "label": "Learns Your Guard",
+            "description": "Guard twice in a row and next round ST increases by 1.",
+        },
+        {
+            "key": "half_grit_raise_defeat",
+            "label": "Second Wind",
+            "description": "First time you drop below half grit, Defeat target rises by +2.",
+        },
+    ]
+    return rng.choice(traits)
+
+
 def _build_encounter(
     for_date: str,
     level: int,
@@ -413,24 +451,42 @@ def _build_encounter(
     stakes_count = 1 if rng.randint(1, 100) <= 60 else 2
     stakes = rng.sample(stakes_pool, k=min(stakes_count, len(stakes_pool))) if stakes_pool else []
 
-    hp = rng.randint(8, 14) if is_boss else rng.randint(3, 8)
-    damage = rng.randint(2, 5) if is_boss else rng.randint(1, 4)
+    success_threshold = 3 + (1 if tier >= 3 else 0) + (1 if is_boss else 0)
+    damage = rng.randint(2, 4) if is_boss else rng.randint(1, 4)
+    defeat_target = 4 + tier + (1 if is_boss else 0)
+    overwhelm_target = defeat_target + (3 if is_boss else 2)
+
+    twist_effect = _roll_twist_effect(rng)
+    if twist_effect["key"] == "lower_st":
+        success_threshold = max(3, success_threshold - 1)
+    elif twist_effect["key"] == "raise_st":
+        success_threshold = min(5, success_threshold + 1)
+    elif twist_effect["key"] == "extra_damage":
+        damage += 1
+    elif twist_effect["key"] == "wider_overwhelm":
+        overwhelm_target += 1
+
+    trait = _boss_trait(rng) if is_boss else None
 
     return {
         "threat_name": threat_name,
-        "hp": hp,
-        "damage": damage,
         "tag": "boss" if is_boss else "frontier",
         "reward_table_key": "boss" if is_boss else "default",
         "is_boss": is_boss,
-        "special": "every_3rd_round_plus_1_damage" if is_boss else None,
+        "special": trait["key"] if trait else None,
+        "trait": trait,
         "intensity_tier": tier,
         "intensity_base": base_tier,
         "intensity_wobble": wobble,
         "location": rng.choice(locations),
         "situation": rng.choice(situations),
         "twist": rng.choice(twists),
+        "twist_effect": twist_effect,
         "stakes": stakes,
+        "success_threshold": success_threshold,
+        "damage": damage,
+        "defeat_target": defeat_target,
+        "overwhelm_target": overwhelm_target,
     }
 
 def get_or_create_daily_roll(for_date: str) -> dict:
@@ -533,9 +589,14 @@ def _equipped_effect_totals(conn: sqlite3.Connection) -> dict:
 def _combat_stats_from_player(conn: sqlite3.Connection, player: sqlite3.Row | dict) -> dict:
     effects = _equipped_effect_totals(conn)
     level = player["level"]
+    attack = 2 + (level // 2) + effects["attack"]
+    guard = 1 + effects["guard"]
+    combat_dice = min(4, max(2, 2 + (level // 4) + (1 if effects["attack"] >= 2 else 0)))
     return {
-        "attack": 2 + (level // 2) + effects["attack"],
-        "guard": 1 + effects["guard"],
+        "attack": attack,
+        "guard": guard,
+        "guard_rating": guard,
+        "combat_dice": combat_dice,
         "grit_bonus": effects["grit_bonus"],
     }
 
@@ -652,7 +713,7 @@ def _compose_frontier_narrative(
     return f"{sentence1} {sentence2}".strip()
 
 
-def resolve_encounter(for_date: str, action: str = "auto") -> dict:
+def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0, push_budget: int = 0) -> dict:
     conn = get_conn()
     try:
         roll = get_or_create_daily_roll(for_date)
@@ -665,13 +726,12 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
         player = conn.execute("SELECT * FROM player WHERE id = 1").fetchone()
         assert player is not None
         combat_stats = _combat_stats_from_player(conn, player)
-        attack_stat = combat_stats["attack"]
-        guard_stat = combat_stats["guard"]
         starting_grit_pool = player["grit_current"] + combat_stats["grit_bonus"]
 
         state = existing or {
-            "threat_hp": encounter["hp"],
+            "accumulated_successes": 0,
             "grit_loss": 0,
+            "grit_spent_push": 0,
             "round": 0,
             "complete": False,
             "outcome": None,
@@ -680,37 +740,187 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
             "last_action": None,
             "narrative": "",
             "combat_stats": combat_stats,
+            "openings": 0,
+            "last_round_damage": 0,
+            "guard_streak": 0,
+            "effective_st": encounter.get("success_threshold", 4),
+            "effective_defeat_target": encounter.get("defeat_target", 5),
+            "trait_half_grit_triggered": False,
+            "consequence": None,
         }
 
-        def do_round(chosen: str) -> None:
+        def _count_successes(dice: list[int], st: int) -> int:
+            successes = 0
+            for die in dice:
+                if die >= st:
+                    successes += 2 if die == 6 else 1
+            return successes
+
+        def _min_push_to_reach(dice: list[int], st: int, needed: int, grit_left: int) -> tuple[int, int]:
+            if needed <= 0:
+                return 0, _count_successes(dice, st)
+            current = _count_successes(dice, st)
+            if current >= needed:
+                return 0, current
+            boosts: list[int] = []
+            for die in dice:
+                best = current
+                for plus in range(1, 7 - die):
+                    new_die = min(6, die + plus)
+                    gain = (2 if new_die == 6 else (1 if new_die >= st else 0)) - (2 if die == 6 else (1 if die >= st else 0))
+                    if gain > 0:
+                        boosts.append(plus)
+                        break
+            boosts.sort()
+            spent = 0
+            gained = current
+            for cost in boosts:
+                if spent + cost > grit_left:
+                    break
+                spent += cost
+                gained += 1
+                if gained >= needed:
+                    return spent, gained
+            return 0, current
+
+        def do_round(chosen: str, manual_push_budget: int = 0) -> None:
             state["round"] += 1
             state["last_action"] = chosen
-            incoming = encounter["damage"] + (1 if encounter.get("special") == "every_3rd_round_plus_1_damage" and state["round"] % 3 == 0 else 0)
-            if chosen == "strike":
-                state["threat_hp"] -= attack_stat
-                state["log"].append(f"Strike for {attack_stat}.")
-                if state["threat_hp"] > 0:
-                    state["grit_loss"] += incoming
-                    state["log"].append(f"Took {incoming} damage.")
+            base_st = encounter.get("success_threshold", 4)
+            st_mod = 0
+            if encounter.get("special") == "guard_twice_st_up" and state.get("guard_streak", 0) >= 2:
+                st_mod += 1
+                state["log"].append("Boss adapted to your guard pattern: ST +1 this round.")
+            state["effective_st"] = max(3, min(6, base_st + st_mod))
+
+            seed = stable_seed(for_date, "combat", str(state["round"]), chosen, str(state["accumulated_successes"]))
+            rng = random.Random(seed)
+            dice = [rng.randint(1, 6) for _ in range(combat_stats["combat_dice"])]
+            successes = _count_successes(dice, state["effective_st"])
+            state["log"].append(f"Rolled {dice} vs ST {state['effective_st']} -> {successes} successes.")
+
+            grit_left = max(0, starting_grit_pool - state["grit_loss"])
+            spent = 0
+            push_reason = ""
+            if chosen == "auto":
+                chosen = "guard" if grit_left <= encounter["damage"] + 1 else "strike"
+
+            needed_defeat = encounter["defeat_target"] - state["accumulated_successes"]
+            needed_overwhelm = encounter["overwhelm_target"] - state["accumulated_successes"]
+            if action == "auto":
+                spent, pushed_successes = _min_push_to_reach(dice, state["effective_st"], needed_overwhelm, grit_left)
+                if spent > 0:
+                    successes = pushed_successes
+                    push_reason = "to reach Overwhelm"
+                else:
+                    spent, pushed_successes = _min_push_to_reach(dice, state["effective_st"], needed_defeat, grit_left)
+                    if spent > 0:
+                        successes = pushed_successes
+                        push_reason = "to secure Defeat"
             else:
-                guarded = max(0, incoming - guard_stat - 1)
-                state["threat_hp"] -= 1
-                state["grit_loss"] += guarded
-                state["log"].append(f"Guard chip for 1; took {guarded}.")
+                spend_cap = max(0, min(manual_push_budget, grit_left))
+                spent = spend_cap
+                # simple approximation: each grit can at most improve one success
+                successes += min(spend_cap, combat_stats["combat_dice"])
+                if spent > 0:
+                    push_reason = "manual push"
+
+            if spent > 0:
+                state["grit_loss"] += spent
+                state["grit_spent_push"] += spent
+                state["log"].append(f"Spent {spent} grit {push_reason}.")
+
+            incoming = encounter["damage"]
+            if encounter.get("special") == "every_3rd_round_plus_1_damage" and state["round"] % 3 == 0:
+                incoming += 1
+            state["last_round_damage"] = 0
+
+            if chosen == "strike":
+                state["guard_streak"] = 0
+                state["accumulated_successes"] += successes
+                if state["accumulated_successes"] >= encounter["overwhelm_target"]:
+                    state["complete"] = True
+                    state["outcome"] = "overwhelm"
+                elif state["accumulated_successes"] >= encounter["defeat_target"]:
+                    state["complete"] = True
+                    state["outcome"] = "defeat"
+                    state["grit_loss"] += incoming
+                    state["last_round_damage"] = incoming
+                    state["log"].append(f"Defeat victory: took {incoming} damage on the finishing exchange.")
+                else:
+                    state["grit_loss"] += incoming
+                    state["last_round_damage"] = incoming
+                    state["log"].append(f"Threat hit for {incoming} damage.")
+            elif chosen == "guard":
+                state["guard_streak"] += 1
+                reduction = min(successes, 2 + combat_stats["guard_rating"])
+                reduced = max(0, incoming - reduction)
+                if successes >= 1:
+                    state["accumulated_successes"] += 1
+                if state["accumulated_successes"] >= encounter["overwhelm_target"]:
+                    state["complete"] = True
+                    state["outcome"] = "overwhelm"
+                elif state["accumulated_successes"] >= encounter["defeat_target"]:
+                    state["complete"] = True
+                    state["outcome"] = "defeat"
+                    state["grit_loss"] += reduced
+                    state["last_round_damage"] = reduced
+                    state["log"].append(f"Defeat via guard: reduced damage to {reduced}.")
+                else:
+                    state["grit_loss"] += reduced
+                    state["last_round_damage"] = reduced
+                    state["log"].append(f"Guard reduced damage by {reduction}; took {reduced}.")
+            elif chosen == "flee":
+                state["guard_streak"] = 0
+                flee_st = min(6, state["effective_st"] + 1)
+                flee_successes = _count_successes(dice, flee_st)
+                if flee_successes >= 2:
+                    state["complete"] = True
+                    state["outcome"] = "fled"
+                    state["grit_loss"] += 1
+                    state["last_round_damage"] = 1
+                    state["log"].append("Escape succeeded. Took 1 parting blow.")
+                else:
+                    state["grit_loss"] += incoming
+                    state["last_round_damage"] = incoming
+                    state["log"].append(f"Escape failed. Took {incoming} damage.")
+
+            if encounter.get("special") == "half_grit_raise_defeat" and not state.get("trait_half_grit_triggered"):
+                remaining = starting_grit_pool - state["grit_loss"]
+                if remaining <= max(1, starting_grit_pool // 2):
+                    state["trait_half_grit_triggered"] = True
+                    encounter["defeat_target"] += 2
+                    encounter["overwhelm_target"] += 2
+                    state["log"].append("Boss second wind! Defeat and Overwhelm targets increased by +2.")
+
+            if state["complete"] and state["outcome"] in {"overwhelm", "defeat"}:
+                target = encounter["overwhelm_target"] if state["outcome"] == "overwhelm" else encounter["defeat_target"]
+                openings = max(0, state["accumulated_successes"] - target)
+                state["openings"] = openings
+                if state["last_round_damage"] > 0 and openings > 0:
+                    reduced = min(openings, state["last_round_damage"])
+                    state["last_round_damage"] -= reduced
+                    state["grit_loss"] -= reduced
+                    openings -= reduced
+                    state["log"].append(f"Openings canceled {reduced} final-round damage.")
+                state["openings"] = openings
+
+            if not state["complete"] and state["grit_loss"] >= starting_grit_pool:
+                state["complete"] = True
+                state["outcome"] = "survived_with_consequence"
 
         if action == "auto":
-            while state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
-                remaining = starting_grit_pool - state["grit_loss"]
-                do_round("strike" if remaining > 2 else "guard")
-        elif state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
-            do_round(action)
-
-        if state["threat_hp"] <= 0:
-            state["complete"] = True
-            state["outcome"] = "overwhelm" if state["last_action"] == "guard" else "defeat"
-        elif state["grit_loss"] >= starting_grit_pool:
-            state["complete"] = True
-            state["outcome"] = "survived_with_consequence"
+            while state["accumulated_successes"] < encounter["overwhelm_target"] and state["grit_loss"] < starting_grit_pool and not state["complete"]:
+                grit_left = max(0, starting_grit_pool - state["grit_loss"])
+                if grit_left <= encounter["damage"] + 1:
+                    choice = "guard"
+                elif state["accumulated_successes"] >= encounter["defeat_target"] - 1:
+                    choice = "strike"
+                else:
+                    choice = "strike"
+                do_round(choice)
+        elif not state["complete"] and state["grit_loss"] < starting_grit_pool:
+            do_round(action, push_budget + tempo_bonus)
 
         if state["complete"] and not state["applied"]:
             workout = ensure_workout_log(for_date)
@@ -725,33 +935,29 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
             else:
                 coins = 0
             coins += overflow_bonus
+            coins += int(state.get("openings", 0))
 
             heat_delta = 0
             renown_delta = 0
-            if end_grit > 0 and state["outcome"] in {"defeat", "overwhelm"}:
-                heat_delta += 1
             if state["outcome"] == "overwhelm":
-                heat_delta += 1
-                renown_delta += 1
-            if encounter.get("is_boss") and end_grit > 0 and state["outcome"] in {"defeat", "overwhelm"}:
                 heat_delta += 2
-            if overflow_bonus:
+                renown_delta += 1
+            elif state["outcome"] == "defeat":
                 heat_delta += 1
-            if end_grit == 0 or state["outcome"] == "survived_with_consequence":
+            elif state["outcome"] == "survived_with_consequence":
                 heat_delta -= 1
-            if encounter.get("is_boss") and state["outcome"] == "overwhelm":
-                renown_delta += 2
+                renown_delta -= 1
+
+            if state["outcome"] == "survived_with_consequence":
+                state["consequence"] = "lost_coins"
+                lost = min(2, player["coins"] + coins)
+                coins -= lost
+                state["log"].append(f"Consequence: lost {lost} coins while recovering.")
 
             conn.execute(
-                "UPDATE player SET grit_current = ?, coins = coins + ?, frontier_heat = MAX(frontier_heat + ?, 0), renown = renown + ? WHERE id = 1",
-                (end_grit, coins, heat_delta, renown_delta),
+                "UPDATE player SET grit_current = ?, coins = MAX(coins + ?, 0), frontier_heat = MAX(frontier_heat + ?, 0), renown = MAX(renown + ?, 0) WHERE id = 1",
+                (max(1, end_grit) if state["outcome"] == "survived_with_consequence" else end_grit, coins, heat_delta, renown_delta),
             )
-
-            if encounter.get("is_boss") and end_grit > 0 and state["outcome"] in {"defeat", "overwhelm"}:
-                _progress_leveling(conn, for_date, 1, "boss survival")
-                theme = load_theme_pack(player["theme_pack"])
-                news = random.Random(stable_seed(for_date, "frontier_news")).choice(theme.get("frontier_news", ["Rumors spread across the frontier."]))
-                _insert_event(conn, for_date, "frontier_news", news)
 
             loot_count = 0
             if state["outcome"] == "overwhelm":
@@ -761,6 +967,8 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
             loot_awarded = _grant_loot_items(conn, for_date, loot_count, player["theme_pack"]) if loot_count else []
 
             reward_text = f"You earned +{coins} coins"
+            if state.get("openings"):
+                reward_text += f" ({state['openings']} from Openings)"
             if renown_delta:
                 reward_text += f", +{renown_delta} renown"
             if loot_awarded:
@@ -782,7 +990,7 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
             state["loot_awarded"] = loot_awarded
             state["applied"] = True
             _insert_event(conn, for_date, "encounter", state["narrative"], {"outcome": state["outcome"], "coins": coins, "heat": heat_delta})
-            conn.execute("UPDATE daily_roll SET result_json=?, resolved_at=? WHERE date=?", (json.dumps(state), utc_now_iso(), for_date))
+            conn.execute("UPDATE daily_roll SET encounter_json=?, result_json=?, resolved_at=? WHERE date=?", (json.dumps(encounter), json.dumps(state), utc_now_iso(), for_date))
         else:
             conn.execute("UPDATE daily_roll SET result_json=? WHERE date=?", (json.dumps(state), for_date))
 

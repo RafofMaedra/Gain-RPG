@@ -58,46 +58,132 @@
   </form>
 </section>
 
-<section class="card">
+<section class="card encounter-card">
   <h3>Tonight's Encounter</h3>
   <p><strong>{{ encounter.threat_name }}</strong> ({{ encounter.tag }})</p>
-  <p>Tier {{ encounter.intensity_tier }} | HP {{ encounter.hp }} | Damage {{ encounter.damage }}</p>
+  <p>Tier {{ encounter.intensity_tier }} | ST {{ encounter.success_threshold }} | Damage {{ encounter.damage }} | Defeat {{ encounter.defeat_target }} / Overwhelm {{ encounter.overwhelm_target }}</p>
   <p><strong>Location:</strong> {{ encounter.location }}</p>
   <p><strong>Situation:</strong> {{ encounter.situation }}</p>
   <p><strong>Twist:</strong> {{ encounter.twist }}</p>
+  {% if encounter.twist_effect %}
+    <p class="twist-effect"><strong>{{ encounter.twist_effect.label }}:</strong> {{ encounter.twist_effect.description }}</p>
+  {% endif %}
+  {% if encounter.trait %}
+    <p class="twist-effect"><strong>Boss Trait — {{ encounter.trait.label }}:</strong> {{ encounter.trait.description }}</p>
+  {% endif %}
   <p><strong>Stakes:</strong> {{ encounter.stakes | join(', ') }}</p>
 
   {% if encounter_result and encounter_result.complete %}
-    <p><strong>Result:</strong> {{ encounter_result.outcome }}</p>
-    <p>Grit lost: {{ encounter_result.grit_loss }}{% if encounter_result.coins_earned is defined %} | Coins earned: {{ encounter_result.coins_earned }}{% endif %}</p>
-    {% if encounter_result.narrative %}
-    <p class="hint">{{ encounter_result.narrative }}</p>
-    {% endif %}
-    <ul>
-      {% for line in encounter_result.log %}
-      <li>{{ line }}</li>
-      {% endfor %}
-    </ul>
+    <div class="result-banner {{ encounter_result.outcome }}">
+      <p><strong>Result:</strong> {{ encounter_result.outcome | replace('_', ' ') | title }}</p>
+      <p>Grit lost: {{ encounter_result.grit_loss }}{% if encounter_result.coins_earned is defined %} | Coins earned: {{ encounter_result.coins_earned }}{% endif %}</p>
+      {% if encounter_result.narrative %}
+        <p class="hint">{{ encounter_result.narrative }}</p>
+      {% endif %}
+      <ul class="encounter-log">
+        {% for line in encounter_result.log %}
+          <li>{{ line }}</li>
+        {% endfor %}
+      </ul>
+    </div>
   {% else %}
     {% if encounter_result %}
-      <p><strong>In Progress:</strong> Threat HP {{ encounter_result.threat_hp }} | Rounds {{ encounter_result.round }}</p>
-      <p>Grit lost so far: {{ encounter_result.grit_loss }}</p>
+      <p><strong>In Progress:</strong> Progress {{ encounter_result.accumulated_successes }} successes | Rounds {{ encounter_result.round }}</p>
+      <p>Grit spent/lost so far: {{ encounter_result.grit_loss }}</p>
     {% endif %}
+
+    <button type="button" id="open-combat-modal">Open Combat Encounter</button>
 
     <form method="post" action="/encounter/auto">
       <button type="submit">Auto Resolve</button>
     </form>
-    <form method="post" action="/encounter/manual" class="row-actions">
-      <button type="submit" name="action" value="strike">Strike</button>
-      <button type="submit" name="action" value="guard">Guard</button>
-    </form>
-    {% if player.testing_mode %}
-    <form method="post" action="/encounter/refresh">
-      <button type="submit">Testing: Refresh Encounter</button>
-    </form>
-    {% endif %}
+
+    <div id="combat-modal" class="combat-modal" aria-hidden="true">
+      <div class="combat-panel">
+        <h4>Combat Sequence</h4>
+        <p>Hit the shown sequence in order to gain momentum for your next action.</p>
+        <p id="combo-sequence" class="combo"></p>
+        <p id="combo-feedback" class="hint"></p>
+        <div class="row-actions">
+          <button type="button" class="combo-btn" data-move="strike">Strike</button>
+          <button type="button" class="combo-btn" data-move="guard">Guard</button>
+        </div>
+
+        <form method="post" action="/encounter/manual" class="grid-form">
+          <input type="hidden" name="tempo_bonus" id="tempo-bonus" value="0" />
+          <label>Push Grit (0-6)
+            <input type="number" min="0" max="6" name="push_budget" value="0" />
+          </label>
+          <div class="row-actions">
+            <button type="submit" name="action" value="strike">Commit Strike</button>
+            <button type="submit" name="action" value="guard">Commit Guard</button>
+            <button type="submit" name="action" value="flee">Attempt Flee</button>
+          </div>
+        </form>
+        <button type="button" id="close-combat-modal">Close</button>
+      </div>
+    </div>
   {% endif %}
 </section>
+
+<script>
+(() => {
+  const modal = document.getElementById('combat-modal');
+  const openBtn = document.getElementById('open-combat-modal');
+  if (!modal || !openBtn) return;
+
+  const sequenceEl = document.getElementById('combo-sequence');
+  const feedbackEl = document.getElementById('combo-feedback');
+  const tempoInput = document.getElementById('tempo-bonus');
+  const closeBtn = document.getElementById('close-combat-modal');
+  const buttons = Array.from(document.querySelectorAll('.combo-btn'));
+
+  let pattern = [];
+  let index = 0;
+
+  const generatePattern = () => {
+    pattern = Array.from({length: 3}, () => Math.random() > 0.5 ? 'strike' : 'guard');
+    index = 0;
+    sequenceEl.textContent = 'Pattern: ' + pattern.join(' → ');
+    feedbackEl.textContent = 'Ready.';
+    tempoInput.value = '0';
+  };
+
+  const openModal = () => {
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    generatePattern();
+  };
+
+  const closeModal = () => {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  };
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const move = btn.dataset.move;
+      if (move === pattern[index]) {
+        index += 1;
+        feedbackEl.textContent = `Step ${index}/3 correct.`;
+      } else {
+        index = 0;
+        feedbackEl.textContent = 'Miss! sequence reset.';
+      }
+
+      if (index >= pattern.length) {
+        tempoInput.value = '2';
+        feedbackEl.textContent = 'Perfect combo! +2 momentum on your commit action.';
+      } else if (index === 2) {
+        tempoInput.value = '1';
+      }
+    });
+  });
+})();
+</script>
 
 <section class="card">
   <h3>Side Quest</h3>
