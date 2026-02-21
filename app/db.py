@@ -633,17 +633,18 @@ def _compose_frontier_narrative(
     overflow_bonus: bool,
     player: sqlite3.Row,
 ) -> str:
+    player_data = dict(player)
     theme = load_theme_pack(player["theme_pack"])
     rng = random.Random(stable_seed(for_date, "frontier", "narrative", outcome))
     beat = ""
     if overflow_bonus:
         beat = rng.choice(theme.get("narrative_candy", [])) if theme.get("narrative_candy") else ""
-    elif player.get("romance_dial") != "off" and outcome == "overwhelm":
+    elif player_data.get("romance_dial") != "off" and outcome == "overwhelm":
         beat = rng.choice(theme.get("romance_light_flirt", [])) if theme.get("romance_light_flirt") else ""
-    elif rng.random() < min(0.5, 0.1 + (player.get("frontier_heat", 0) * 0.05)):
+    elif rng.random() < min(0.5, 0.1 + (player_data.get("frontier_heat", 0) * 0.05)):
         beat = rng.choice(theme.get("rival_beats", [])) if theme.get("rival_beats") else ""
 
-    if (player["level"] >= 3 or player.get("renown", 0) >= 10) and rng.random() < 0.2:
+    if (player["level"] >= 3 or player_data.get("renown", 0) >= 10) and rng.random() < 0.2:
         beat = rng.choice(theme.get("legacy_events", [])) if theme.get("legacy_events") else beat
 
     sentence1 = f"At {encounter.get('location', 'the frontier')}, {encounter['threat_name']} turned a routine push into chaos as {encounter.get('twist', 'the situation shifted')}."
