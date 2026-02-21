@@ -5,6 +5,60 @@
   <p><strong>Level:</strong> {{ player.level }}</p>
   <p><strong>Grit:</strong> {{ player.grit_current }} / {{ player.grit_max }}</p>
   <p><strong>Coins:</strong> {{ player.coins }} | <strong>Tokens:</strong> {{ player.campfire_tokens }}</p>
-  <p class="hint">Milestone 1 scaffold is ready. Workout and encounter systems come next.</p>
+</section>
+
+<section class="card">
+  <h3>Today's Workout</h3>
+  <p class="hint">One tap minimum set: {{ minimum_set.pushups }} pushups, {{ minimum_set.situps }} situps, {{ minimum_set.squats }} squats, {{ minimum_set.pullups }} pullup.</p>
+
+  <form method="post" action="/workout/minimum-set">
+    <button type="submit">Minimum Set</button>
+  </form>
+
+  <form method="post" action="/workout/save" class="grid-form">
+    <label>Pushups <input type="number" min="0" name="pushups" value="{{ workout.pushups }}" required></label>
+    <label>Situps <input type="number" min="0" name="situps" value="{{ workout.situps }}" required></label>
+    <label>Squats <input type="number" min="0" name="squats" value="{{ workout.squats }}" required></label>
+    <label>Pullups <input type="number" min="0" name="pullups" value="{{ workout.pullups }}" required></label>
+    <button type="submit">Save Reps</button>
+  </form>
+
+  <p><strong>Grit restore preview:</strong> +{{ preview_grit }}</p>
+  <p><strong>Minimum set done:</strong> {{ "Yes" if workout.minimum_set_done else "No" }}</p>
+  <form method="post" action="/workout/lock-in">
+    <button type="submit" {% if workout.locked_in_at %}disabled{% endif %}>Lock In Today</button>
+  </form>
+  {% if workout.locked_in_at %}
+    <p class="hint">Locked in at {{ workout.locked_in_at }}.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h3>Tonight's Encounter</h3>
+  <p><strong>{{ encounter.threat_name }}</strong> ({{ encounter.tag }})</p>
+  <p>HP {{ encounter.hp }} | Damage {{ encounter.damage }}</p>
+
+  {% if encounter_result and encounter_result.complete %}
+    <p><strong>Result:</strong> {{ encounter_result.outcome }}</p>
+    <p>Grit lost: {{ encounter_result.grit_loss }}{% if encounter_result.coins_earned is defined %} | Coins earned: {{ encounter_result.coins_earned }}{% endif %}</p>
+    <ul>
+      {% for line in encounter_result.log %}
+      <li>{{ line }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {% if encounter_result %}
+      <p><strong>In Progress:</strong> Threat HP {{ encounter_result.threat_hp }} | Rounds {{ encounter_result.round }}</p>
+      <p>Grit lost so far: {{ encounter_result.grit_loss }}</p>
+    {% endif %}
+
+    <form method="post" action="/encounter/auto">
+      <button type="submit">Auto Resolve</button>
+    </form>
+    <form method="post" action="/encounter/manual" class="row-actions">
+      <button type="submit" name="action" value="strike">Strike</button>
+      <button type="submit" name="action" value="guard">Guard</button>
+    </form>
+  {% endif %}
 </section>
 {% endblock %}
