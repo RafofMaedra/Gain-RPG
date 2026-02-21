@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import argparse
 
-from app.db import get_notification_summary, get_player, should_send_evening_nudge, today_key
+from app.db import (
+    get_notification_summary,
+    get_player,
+    mark_reminder_sent,
+    should_send_evening_nudge,
+    today_key,
+    was_reminder_sent,
+)
 from app.notifier import DiscordNotifier, NoopNotifier, NtfyNotifier
 
 
@@ -15,23 +22,38 @@ def _build_notifier():
     return NoopNotifier()
 
 
-def send_morning() -> None:
-    summary = get_notification_summary(today_key())
+def send_morning(for_date: str | None = None) -> bool:
+    for_date = for_date or today_key()
+    if was_reminder_sent("morning", for_date):
+        return False
+    summary = get_notification_summary(for_date)
     _build_notifier().send("Morning Rally", f"Minimum set keeps your Grit alive. Tonight: {summary['threat']}.")
+    mark_reminder_sent("morning", for_date)
+    return True
 
 
-def send_evening() -> None:
-    today = today_key()
-    if should_send_evening_nudge(today):
-        _build_notifier().send("Evening Nudge", "You have not logged minimum set yet. Lock in before midnight.", priority="high")
+def send_evening(for_date: str | None = None) -> bool:
+    for_date = for_date or today_key()
+    if was_reminder_sent("evening", for_date):
+        return False
+    if not should_send_evening_nudge(for_date):
+        return False
+    _build_notifier().send("Evening Nudge", "You have not logged minimum set yet. Lock in before midnight.", priority="high")
+    mark_reminder_sent("evening", for_date)
+    return True
 
 
-def send_midnight() -> None:
-    summary = get_notification_summary(today_key())
+def send_midnight(for_date: str | None = None) -> bool:
+    for_date = for_date or today_key()
+    if was_reminder_sent("midnight", for_date):
+        return False
+    summary = get_notification_summary(for_date)
     body = f"Threat: {summary['threat']}."
     if summary["resolved"]:
         body += f" Latest result: {summary['result']}."
     _build_notifier().send("Midnight Summary", body)
+    mark_reminder_sent("midnight", for_date)
+    return True
 
 
 def main() -> None:

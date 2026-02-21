@@ -179,6 +179,7 @@ def save_settings(
     testing_mode: bool = Form(False),
     discord_webhook_url: str = Form(""),
     ntfy_topic_url: str = Form(""),
+    day_timezone: str = Form("Pacific/Auckland"),
 ) -> HTMLResponse:
     update_settings(
         name=name,
@@ -186,6 +187,7 @@ def save_settings(
         testing_mode=testing_mode,
         discord_webhook_url=discord_webhook_url,
         ntfy_topic_url=ntfy_topic_url,
+        day_timezone=day_timezone,
     )
     player = get_player()
     if request.headers.get("HX-Request"):

@@ -24,6 +24,13 @@
     <input type="text" name="ntfy_topic_url" value="{{ player.ntfy_topic_url }}" />
   </label>
 
+
+  <label>
+    Day timezone
+    <input type="text" name="day_timezone" value="{{ player.day_timezone or 'Pacific/Auckland' }}" required />
+    <small class="hint">IANA timezone, e.g. Pacific/Auckland or America/Los_Angeles.</small>
+  </label>
+
   <label class="checkbox-row">
     <input type="checkbox" name="testing_mode" {% if player.testing_mode %}checked{% endif %} />
     Testing mode

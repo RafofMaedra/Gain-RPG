@@ -13,7 +13,20 @@ uvicorn app.main:app --reload
 
 Open http://127.0.0.1:8000.
 
-## Jobs (cron/systemd timer)
+## Scheduling jobs
+
+Recommended: run one frequent scheduler (every 5-10 minutes) and let it trigger time-specific actions using your configured `day_timezone`.
+
+```bash
+python -m app.jobs.schedule_runner
+```
+
+It will:
+- run midnight tick + midnight summary around `00:00`
+- send morning reminder around `08:00`
+- send evening nudge around `19:00` (only when minimum set is missing)
+
+You can also run commands directly:
 
 ```bash
 python -m app.jobs.midnight_tick

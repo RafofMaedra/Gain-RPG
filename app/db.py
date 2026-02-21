@@ -4,6 +4,7 @@ import json
 import random
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 
 from app.content import load_theme_pack, narrative_line, weighted_choice
@@ -27,6 +28,7 @@ DEFAULT_PLAYER = {
     "discord_webhook_url": "",
     "ntfy_topic_url": "",
     "sidequests_completed": 0,
+    "day_timezone": "Pacific/Auckland",
 }
 
 
@@ -132,17 +134,18 @@ def init_db() -> None:
         _ensure_column(conn, "player", "discord_webhook_url", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "player", "ntfy_topic_url", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "player", "sidequests_completed", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "player", "day_timezone", "TEXT NOT NULL DEFAULT 'Pacific/Auckland'")
 
         conn.execute(
             """
             INSERT INTO player (
                 id, name, level, weeks_completed_towards_next_level, weeks_required_for_next_level,
                 grit_current, grit_max, coins, campfire_tokens, theme_pack, testing_mode,
-                discord_webhook_url, ntfy_topic_url, sidequests_completed
+                discord_webhook_url, ntfy_topic_url, sidequests_completed, day_timezone
             ) VALUES (
                 :id, :name, :level, :weeks_completed_towards_next_level, :weeks_required_for_next_level,
                 :grit_current, :grit_max, :coins, :campfire_tokens, :theme_pack, :testing_mode,
-                :discord_webhook_url, :ntfy_topic_url, :sidequests_completed
+                :discord_webhook_url, :ntfy_topic_url, :sidequests_completed, :day_timezone
             ) ON CONFLICT(id) DO NOTHING
             """,
             DEFAULT_PLAYER,
@@ -164,14 +167,23 @@ def get_player() -> dict:
         conn.close()
 
 
+def _player_zoneinfo(player: sqlite3.Row | dict | None) -> ZoneInfo:
+    tz_name = (player or {}).get("day_timezone") if isinstance(player, dict) else (player["day_timezone"] if player and "day_timezone" in player.keys() else "Pacific/Auckland")
+    try:
+        return ZoneInfo(tz_name or "Pacific/Auckland")
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
 def get_app_today() -> str:
     conn = get_conn()
     try:
-        player = conn.execute("SELECT testing_mode FROM player WHERE id = 1").fetchone()
+        player = conn.execute("SELECT testing_mode, day_timezone FROM player WHERE id = 1").fetchone()
         state = conn.execute("SELECT simulated_date FROM app_state WHERE id = 1").fetchone()
         if player and player["testing_mode"] and state and state["simulated_date"]:
             return state["simulated_date"]
-        return date.today().isoformat()
+        tz = _player_zoneinfo(player)
+        return datetime.now(tz).date().isoformat()
     finally:
         conn.close()
 
@@ -191,13 +203,13 @@ def testing_advance_day(days: int = 1) -> str:
         conn.close()
 
 
-def update_settings(name: str, theme_pack: str, testing_mode: bool, discord_webhook_url: str, ntfy_topic_url: str) -> None:
+def update_settings(name: str, theme_pack: str, testing_mode: bool, discord_webhook_url: str, ntfy_topic_url: str, day_timezone: str) -> None:
     conn = get_conn()
     try:
         conn.execute(
             """
             UPDATE player
-            SET name = ?, theme_pack = ?, testing_mode = ?, discord_webhook_url = ?, ntfy_topic_url = ?
+            SET name = ?, theme_pack = ?, testing_mode = ?, discord_webhook_url = ?, ntfy_topic_url = ?, day_timezone = ?
             WHERE id = 1
             """,
             (
@@ -206,6 +218,7 @@ def update_settings(name: str, theme_pack: str, testing_mode: bool, discord_webh
                 int(testing_mode),
                 discord_webhook_url.strip(),
                 ntfy_topic_url.strip(),
+                day_timezone.strip() or "Pacific/Auckland",
             ),
         )
         if testing_mode:
@@ -664,6 +677,41 @@ def import_save_data(payload: dict) -> None:
     finally:
         conn.close()
 
+
+
+def was_reminder_sent(kind: str, for_date: str) -> bool:
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM event_log WHERE date = ? AND kind = ? LIMIT 1",
+            (for_date, f"reminder_{kind}"),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def mark_reminder_sent(kind: str, for_date: str) -> None:
+    conn = get_conn()
+    try:
+        if not was_reminder_sent(kind, for_date):
+            _insert_event(conn, for_date, f"reminder_{kind}", f"Sent {kind} reminder")
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def get_schedule_context(now_utc: datetime | None = None) -> dict:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    player = get_player()
+    tz = _player_zoneinfo(player)
+    local = now_utc.astimezone(tz)
+    return {
+        "timezone": str(tz),
+        "local_date": local.date().isoformat(),
+        "local_hour": local.hour,
+        "local_minute": local.minute,
+    }
 
 def should_send_evening_nudge(for_date: str) -> bool:
     workout = ensure_workout_log(for_date)
