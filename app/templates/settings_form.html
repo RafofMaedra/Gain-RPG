@@ -31,6 +31,16 @@
     <small class="hint">IANA timezone, e.g. Pacific/Auckland or America/Los_Angeles.</small>
   </label>
 
+
+  <label>
+    Romance dial
+    <select name="romance_dial">
+      <option value="off" {% if player.romance_dial == 'off' %}selected{% endif %}>Off</option>
+      <option value="light_flirt" {% if player.romance_dial == 'light_flirt' %}selected{% endif %}>Light flirt</option>
+      <option value="strong_flirt" {% if player.romance_dial == 'strong_flirt' %}selected{% endif %}>Strong flirt</option>
+    </select>
+  </label>
+
   <label class="checkbox-row">
     <input type="checkbox" name="testing_mode" {% if player.testing_mode %}checked{% endif %} />
     Testing mode

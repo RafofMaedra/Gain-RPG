@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 
-from app.content import load_theme_pack, narrative_line, weighted_choice
+from app.content import load_theme_pack, narrative_line, stable_seed, weighted_choice
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data.sqlite3"
 
@@ -23,12 +23,15 @@ DEFAULT_PLAYER = {
     "grit_max": 5,
     "coins": 0,
     "campfire_tokens": 0,
-    "theme_pack": "default",
+    "theme_pack": "frontier_kingdom",
     "testing_mode": 0,
     "discord_webhook_url": "",
     "ntfy_topic_url": "",
     "sidequests_completed": 0,
     "day_timezone": "Pacific/Auckland",
+    "frontier_heat": 0,
+    "renown": 0,
+    "romance_dial": "light_flirt",
 }
 
 
@@ -135,17 +138,20 @@ def init_db() -> None:
         _ensure_column(conn, "player", "ntfy_topic_url", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "player", "sidequests_completed", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "player", "day_timezone", "TEXT NOT NULL DEFAULT 'Pacific/Auckland'")
+        _ensure_column(conn, "player", "frontier_heat", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "player", "renown", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "player", "romance_dial", "TEXT NOT NULL DEFAULT 'light_flirt'")
 
         conn.execute(
             """
             INSERT INTO player (
                 id, name, level, weeks_completed_towards_next_level, weeks_required_for_next_level,
                 grit_current, grit_max, coins, campfire_tokens, theme_pack, testing_mode,
-                discord_webhook_url, ntfy_topic_url, sidequests_completed, day_timezone
+                discord_webhook_url, ntfy_topic_url, sidequests_completed, day_timezone, frontier_heat, renown, romance_dial
             ) VALUES (
                 :id, :name, :level, :weeks_completed_towards_next_level, :weeks_required_for_next_level,
                 :grit_current, :grit_max, :coins, :campfire_tokens, :theme_pack, :testing_mode,
-                :discord_webhook_url, :ntfy_topic_url, :sidequests_completed, :day_timezone
+                :discord_webhook_url, :ntfy_topic_url, :sidequests_completed, :day_timezone, :frontier_heat, :renown, :romance_dial
             ) ON CONFLICT(id) DO NOTHING
             """,
             DEFAULT_PLAYER,
@@ -203,22 +209,31 @@ def testing_advance_day(days: int = 1) -> str:
         conn.close()
 
 
-def update_settings(name: str, theme_pack: str, testing_mode: bool, discord_webhook_url: str, ntfy_topic_url: str, day_timezone: str) -> None:
+def update_settings(
+    name: str,
+    theme_pack: str,
+    testing_mode: bool,
+    discord_webhook_url: str,
+    ntfy_topic_url: str,
+    day_timezone: str,
+    romance_dial: str = "light_flirt",
+) -> None:
     conn = get_conn()
     try:
         conn.execute(
             """
             UPDATE player
-            SET name = ?, theme_pack = ?, testing_mode = ?, discord_webhook_url = ?, ntfy_topic_url = ?, day_timezone = ?
+            SET name = ?, theme_pack = ?, testing_mode = ?, discord_webhook_url = ?, ntfy_topic_url = ?, day_timezone = ?, romance_dial = ?
             WHERE id = 1
             """,
             (
                 name.strip() or DEFAULT_PLAYER["name"],
-                theme_pack.strip() or "default",
+                theme_pack.strip() or "frontier_kingdom",
                 int(testing_mode),
                 discord_webhook_url.strip(),
                 ntfy_topic_url.strip(),
                 day_timezone.strip() or "Pacific/Auckland",
+                romance_dial if romance_dial in {"off", "light_flirt", "strong_flirt"} else "light_flirt",
             ),
         )
         if testing_mode:
@@ -228,7 +243,6 @@ def update_settings(name: str, theme_pack: str, testing_mode: bool, discord_webh
         conn.commit()
     finally:
         conn.close()
-
 
 def ensure_workout_log(log_date: str) -> dict:
     conn = get_conn()
@@ -328,6 +342,9 @@ def lock_in_workout(log_date: str) -> None:
         if _minimum_streak(conn, log_date) % 7 == 0 and _minimum_streak(conn, log_date) > 0:
             conn.execute("UPDATE player SET campfire_tokens = campfire_tokens + 2 WHERE id = 1")
             _insert_event(conn, log_date, "streak_bonus", "7-day minimum-set streak: +2 campfire tokens")
+        other = _parse_json(workout.get("other_json"), {})
+        other["overflow_bonus"] = 1 if overflow > 0 else 0
+        conn.execute("UPDATE workout_log SET other_json = ? WHERE date = ?", (json.dumps(other), log_date))
         _insert_event(conn, log_date, "workout", f"Workout locked (+{restore} grit).")
         conn.commit()
     finally:
@@ -360,35 +377,69 @@ def _is_sunday(iso_date: str) -> bool:
     return date.fromisoformat(iso_date).weekday() == 6
 
 
-def _build_encounter(for_date: str, level: int, theme_key: str, seed_extra: int = 0) -> dict:
-    seed = int(for_date.replace("-", "")) + level * 31 + seed_extra
-    rng = random.Random(seed)
+def _build_encounter(
+    for_date: str,
+    level: int,
+    theme_key: str,
+    seed_extra: int = 0,
+    force_boss: bool = False,
+    frontier_heat: int = 0,
+) -> dict:
     theme = load_theme_pack(theme_key)
+    seed = stable_seed(for_date, theme_key, "encounter", str(seed_extra))
+    rng = random.Random(seed)
 
-    entries = theme["bosses"] if _is_sunday(for_date) else theme["threats"]
-    chosen = weighted_choice(rng, entries)
-    if not chosen:
-        chosen = {"name": "Unknown Threat", "tags": ["unknown"], "hp_min": 3, "hp_max": 8, "damage_min": 1, "damage_max": 4}
+    base_tier = 1 + (max(0, frontier_heat) // 3)
+    wobble_roll = rng.randint(1, 6)
+    wobble = -1 if wobble_roll <= 2 else (1 if wobble_roll >= 5 else 0)
+    tier = max(1, min(4, base_tier + wobble))
+
+    is_boss = force_boss or _is_sunday(for_date)
+    threats_key = "boss_threats" if is_boss else "weekday_threats"
+    threat_table = theme.get(threats_key, {}).get(str(tier), [])
+    threat_name = rng.choice(threat_table) if threat_table else "Unknown Threat"
+
+    locations = theme.get("locations", ["Unknown location"])
+    situations = theme.get("situations", ["Unknown situation"])
+    twists = theme.get("twists", ["No twist"])
+    stakes_pool = theme.get("stakes", ["No stakes"])
+
+    stakes_count = 1 if rng.randint(1, 100) <= 60 else 2
+    stakes = rng.sample(stakes_pool, k=min(stakes_count, len(stakes_pool))) if stakes_pool else []
+
+    hp = rng.randint(8, 14) if is_boss else rng.randint(3, 8)
+    damage = rng.randint(2, 5) if is_boss else rng.randint(1, 4)
 
     return {
-        "threat_name": chosen["name"],
-        "hp": rng.randint(int(chosen.get("hp_min", 3)), int(chosen.get("hp_max", 8))),
-        "damage": rng.randint(int(chosen.get("damage_min", 1)), int(chosen.get("damage_max", 4))),
-        "tag": (chosen.get("tags") or ["unknown"])[0],
-        "reward_table_key": "boss" if _is_sunday(for_date) else "default",
-        "is_boss": _is_sunday(for_date),
-        "special": chosen.get("special"),
+        "threat_name": threat_name,
+        "hp": hp,
+        "damage": damage,
+        "tag": "boss" if is_boss else "frontier",
+        "reward_table_key": "boss" if is_boss else "default",
+        "is_boss": is_boss,
+        "special": "every_3rd_round_plus_1_damage" if is_boss else None,
+        "intensity_tier": tier,
+        "intensity_base": base_tier,
+        "intensity_wobble": wobble,
+        "location": rng.choice(locations),
+        "situation": rng.choice(situations),
+        "twist": rng.choice(twists),
+        "stakes": stakes,
     }
-
 
 def get_or_create_daily_roll(for_date: str) -> dict:
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM daily_roll WHERE date = ?", (for_date,)).fetchone()
         if row is None:
-            player = conn.execute("SELECT level, theme_pack FROM player WHERE id = 1").fetchone()
+            player = conn.execute("SELECT level, theme_pack, frontier_heat FROM player WHERE id = 1").fetchone()
             assert player is not None
-            encounter = _build_encounter(for_date, player["level"], player["theme_pack"])
+            encounter = _build_encounter(
+                for_date,
+                player["level"],
+                player["theme_pack"],
+                frontier_heat=player["frontier_heat"],
+            )
             conn.execute(
                 "INSERT INTO daily_roll (date, encounter_json, generated_at) VALUES (?, ?, ?)",
                 (for_date, json.dumps(encounter), utc_now_iso()),
@@ -396,17 +447,28 @@ def get_or_create_daily_roll(for_date: str) -> dict:
             conn.commit()
             row = conn.execute("SELECT * FROM daily_roll WHERE date = ?", (for_date,)).fetchone()
         assert row is not None
-        return {"date": row["date"], "encounter": _parse_json(row["encounter_json"], {}), "result": _parse_json(row["result_json"], None), "resolved_at": row["resolved_at"]}
+        return {
+            "date": row["date"],
+            "encounter": _parse_json(row["encounter_json"], {}),
+            "result": _parse_json(row["result_json"], None),
+            "resolved_at": row["resolved_at"],
+        }
     finally:
         conn.close()
 
-
-def refresh_daily_roll(for_date: str) -> None:
+def refresh_daily_roll(for_date: str, force_boss: bool = False, seed_extra: int = 999) -> None:
     conn = get_conn()
     try:
-        player = conn.execute("SELECT level, theme_pack FROM player WHERE id = 1").fetchone()
+        player = conn.execute("SELECT level, theme_pack, frontier_heat FROM player WHERE id = 1").fetchone()
         assert player is not None
-        encounter = _build_encounter(for_date, player["level"], player["theme_pack"])
+        encounter = _build_encounter(
+            for_date,
+            player["level"],
+            player["theme_pack"],
+            seed_extra=seed_extra,
+            force_boss=force_boss,
+            frontier_heat=player["frontier_heat"],
+        )
         conn.execute(
             """
             INSERT INTO daily_roll (date, encounter_json, generated_at, resolved_at, result_json)
@@ -418,7 +480,6 @@ def refresh_daily_roll(for_date: str) -> None:
         conn.commit()
     finally:
         conn.close()
-
 
 def get_inventory() -> list[dict]:
     conn = get_conn()
@@ -510,6 +571,80 @@ def _progress_leveling(conn: sqlite3.Connection, for_date: str, weeks_gain: int,
         conn.execute("UPDATE player SET weeks_completed_towards_next_level=? WHERE id=1", (weeks,))
 
 
+def preview_intensity_tier(for_date: str) -> dict:
+    conn = get_conn()
+    try:
+        player = conn.execute("SELECT level, theme_pack, frontier_heat FROM player WHERE id = 1").fetchone()
+        assert player is not None
+        encounter = _build_encounter(
+            for_date,
+            player["level"],
+            player["theme_pack"],
+            frontier_heat=player["frontier_heat"],
+        )
+        return {
+            "base": encounter["intensity_base"],
+            "wobble": encounter["intensity_wobble"],
+            "tier": encounter["intensity_tier"],
+        }
+    finally:
+        conn.close()
+
+
+def set_frontier_heat(value: int) -> None:
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE player SET frontier_heat = ? WHERE id = 1", (max(0, min(12, int(value))),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def force_generate_roll(for_date: str, force_boss: bool = False) -> None:
+    refresh_daily_roll(for_date, force_boss=force_boss, seed_extra=2024)
+
+
+def _grant_loot_items(conn: sqlite3.Connection, for_date: str, count: int, theme_key: str) -> list[str]:
+    theme = load_theme_pack(theme_key)
+    loot = theme.get("loot_table", ["Frontier Keepsake"])
+    rng = random.Random(stable_seed(for_date, theme_key, "loot", str(count)))
+    awarded = []
+    for _ in range(count):
+        name = rng.choice(loot)
+        conn.execute(
+            "INSERT INTO inventory_item (name, type, effect_json, equipped) VALUES (?, ?, ?, 0)",
+            (name, "loot", json.dumps({}), 0),
+        )
+        awarded.append(name)
+    return awarded
+
+
+def _compose_frontier_narrative(
+    for_date: str,
+    encounter: dict,
+    outcome: str,
+    reward_text: str,
+    overflow_bonus: bool,
+    player: sqlite3.Row,
+) -> str:
+    theme = load_theme_pack(player["theme_pack"])
+    rng = random.Random(stable_seed(for_date, "frontier", "narrative", outcome))
+    beat = ""
+    if overflow_bonus:
+        beat = rng.choice(theme.get("narrative_candy", [])) if theme.get("narrative_candy") else ""
+    elif player.get("romance_dial") != "off" and outcome == "overwhelm":
+        beat = rng.choice(theme.get("romance_light_flirt", [])) if theme.get("romance_light_flirt") else ""
+    elif rng.random() < min(0.5, 0.1 + (player.get("frontier_heat", 0) * 0.05)):
+        beat = rng.choice(theme.get("rival_beats", [])) if theme.get("rival_beats") else ""
+
+    if (player["level"] >= 3 or player.get("renown", 0) >= 10) and rng.random() < 0.2:
+        beat = rng.choice(theme.get("legacy_events", [])) if theme.get("legacy_events") else beat
+
+    sentence1 = f"At {encounter.get('location', 'the frontier')}, {encounter['threat_name']} turned a routine push into chaos as {encounter.get('twist', 'the situation shifted')}."
+    sentence2 = f"{reward_text} {beat}".strip()
+    return f"{sentence1} {sentence2}".strip()
+
+
 def resolve_encounter(for_date: str, action: str = "auto") -> dict:
     conn = get_conn()
     try:
@@ -522,22 +657,31 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
 
         player = conn.execute("SELECT * FROM player WHERE id = 1").fetchone()
         assert player is not None
-        theme = load_theme_pack(player["theme_pack"])
         combat_stats = _combat_stats_from_player(conn, player)
         attack_stat = combat_stats["attack"]
         guard_stat = combat_stats["guard"]
         starting_grit_pool = player["grit_current"] + combat_stats["grit_bonus"]
 
-        state = existing or {"threat_hp": encounter["hp"], "grit_loss": 0, "round": 0, "complete": False, "outcome": None, "log": [], "applied": False, "last_action": None, "narrative": "", "combat_stats": combat_stats}
+        state = existing or {
+            "threat_hp": encounter["hp"],
+            "grit_loss": 0,
+            "round": 0,
+            "complete": False,
+            "outcome": None,
+            "log": [],
+            "applied": False,
+            "last_action": None,
+            "narrative": "",
+            "combat_stats": combat_stats,
+        }
 
         def do_round(chosen: str) -> None:
             state["round"] += 1
             state["last_action"] = chosen
             incoming = encounter["damage"] + (1 if encounter.get("special") == "every_3rd_round_plus_1_damage" and state["round"] % 3 == 0 else 0)
             if chosen == "strike":
-                dmg = attack_stat
-                state["threat_hp"] -= dmg
-                state["log"].append(f"Strike for {dmg}.")
+                state["threat_hp"] -= attack_stat
+                state["log"].append(f"Strike for {attack_stat}.")
                 if state["threat_hp"] > 0:
                     state["grit_loss"] += incoming
                     state["log"].append(f"Took {incoming} damage.")
@@ -551,9 +695,8 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
             while state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
                 remaining = starting_grit_pool - state["grit_loss"]
                 do_round("strike" if remaining > 2 else "guard")
-        else:
-            if state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
-                do_round(action)
+        elif state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
+            do_round(action)
 
         if state["threat_hp"] <= 0:
             state["complete"] = True
@@ -563,26 +706,75 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
             state["outcome"] = "survived_with_consequence"
 
         if state["complete"] and not state["applied"]:
+            workout = ensure_workout_log(for_date)
+            overflow_bonus = 1 if _parse_json(workout.get("other_json"), {}).get("overflow_bonus") else 0
+
             end_grit = max(0, starting_grit_pool - state["grit_loss"] - combat_stats["grit_bonus"])
-            coins = 3 if state["outcome"] == "overwhelm" else 2
-            if end_grit == 0:
-                coins = max(0, coins - 1)
-            conn.execute("UPDATE player SET grit_current = ?, coins = coins + ? WHERE id = 1", (end_grit, coins))
-            if state["outcome"] == "survived_with_consequence":
-                conn.execute("UPDATE player SET campfire_tokens = MAX(campfire_tokens - 1, 0) WHERE id = 1")
-            if encounter.get("is_boss") and state["outcome"] != "survived_with_consequence" and end_grit > 0:
-                _progress_leveling(conn, for_date, 1, "boss survival")
-                state["narrative"] = narrative_line(theme, "boss_survival", int(for_date.replace("-", "")), "You endure the boss encounter.")
-            elif state["outcome"] == "overwhelm":
-                state["narrative"] = narrative_line(theme, "encounter_guard_win", int(for_date.replace("-", "")), "You outlast the threat.")
+            rng = random.Random(stable_seed(for_date, player["theme_pack"], "reward", state["outcome"]))
+            if state["outcome"] == "overwhelm":
+                coins = rng.randint(3, 6)
             elif state["outcome"] == "defeat":
-                state["narrative"] = narrative_line(theme, "encounter_win", int(for_date.replace("-", "")), "You win the encounter.")
+                coins = rng.randint(1, 3)
             else:
-                state["narrative"] = narrative_line(theme, "encounter_consequence", int(for_date.replace("-", "")), "You survive with a consequence.")
+                coins = 0
+            coins += overflow_bonus
+
+            heat_delta = 0
+            renown_delta = 0
+            if end_grit > 0 and state["outcome"] in {"defeat", "overwhelm"}:
+                heat_delta += 1
+            if state["outcome"] == "overwhelm":
+                heat_delta += 1
+                renown_delta += 1
+            if encounter.get("is_boss") and end_grit > 0 and state["outcome"] in {"defeat", "overwhelm"}:
+                heat_delta += 2
+            if overflow_bonus:
+                heat_delta += 1
+            if end_grit == 0 or state["outcome"] == "survived_with_consequence":
+                heat_delta -= 1
+            if encounter.get("is_boss") and state["outcome"] == "overwhelm":
+                renown_delta += 2
+
+            conn.execute(
+                "UPDATE player SET grit_current = ?, coins = coins + ?, frontier_heat = MAX(frontier_heat + ?, 0), renown = renown + ? WHERE id = 1",
+                (end_grit, coins, heat_delta, renown_delta),
+            )
+
+            if encounter.get("is_boss") and end_grit > 0 and state["outcome"] in {"defeat", "overwhelm"}:
+                _progress_leveling(conn, for_date, 1, "boss survival")
+                theme = load_theme_pack(player["theme_pack"])
+                news = random.Random(stable_seed(for_date, "frontier_news")).choice(theme.get("frontier_news", ["Rumors spread across the frontier."]))
+                _insert_event(conn, for_date, "frontier_news", news)
+
+            loot_count = 0
+            if state["outcome"] == "overwhelm":
+                loot_count += 1
+            if encounter.get("is_boss") and state["outcome"] in {"defeat", "overwhelm"}:
+                loot_count += 2
+            loot_awarded = _grant_loot_items(conn, for_date, loot_count, player["theme_pack"]) if loot_count else []
+
+            reward_text = f"You earned +{coins} coins"
+            if renown_delta:
+                reward_text += f", +{renown_delta} renown"
+            if loot_awarded:
+                reward_text += f", and loot: {loot_awarded[0]}"
+            reward_text += "."
+
+            state["narrative"] = _compose_frontier_narrative(
+                for_date,
+                encounter,
+                state["outcome"],
+                reward_text,
+                bool(overflow_bonus),
+                player,
+            )
 
             state["coins_earned"] = coins
+            state["renown_earned"] = renown_delta
+            state["heat_delta"] = heat_delta
+            state["loot_awarded"] = loot_awarded
             state["applied"] = True
-            _insert_event(conn, for_date, "encounter", f"{encounter['threat_name']} -> {state['outcome']}", {"coins": coins})
+            _insert_event(conn, for_date, "encounter", state["narrative"], {"outcome": state["outcome"], "coins": coins, "heat": heat_delta})
             conn.execute("UPDATE daily_roll SET result_json=?, resolved_at=? WHERE date=?", (json.dumps(state), utc_now_iso(), for_date))
         else:
             conn.execute("UPDATE daily_roll SET result_json=? WHERE date=?", (json.dumps(state), for_date))
@@ -591,7 +783,6 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
         return state
     finally:
         conn.close()
-
 
 def spend_token_negate_tonight_damage(for_date: str) -> bool:
     conn = get_conn()
@@ -618,11 +809,11 @@ def spend_token_negate_tonight_damage(for_date: str) -> bool:
 def spend_token_reroll_encounter(for_date: str) -> bool:
     conn = get_conn()
     try:
-        player = conn.execute("SELECT campfire_tokens, level, theme_pack FROM player WHERE id = 1").fetchone()
+        player = conn.execute("SELECT campfire_tokens, level, theme_pack, frontier_heat FROM player WHERE id = 1").fetchone()
         row = conn.execute("SELECT resolved_at FROM daily_roll WHERE date = ?", (for_date,)).fetchone()
         if not player or player["campfire_tokens"] < 1 or (row and row["resolved_at"]):
             return False
-        encounter = _build_encounter(for_date, player["level"], player["theme_pack"], seed_extra=999)
+        encounter = _build_encounter(for_date, player["level"], player["theme_pack"], seed_extra=999, frontier_heat=player["frontier_heat"])
         conn.execute("UPDATE player SET campfire_tokens = campfire_tokens - 1 WHERE id = 1")
         conn.execute(
             "INSERT INTO daily_roll (date, encounter_json, generated_at, resolved_at, result_json) VALUES (?, ?, ?, NULL, NULL) ON CONFLICT(date) DO UPDATE SET encounter_json=excluded.encounter_json, generated_at=excluded.generated_at, resolved_at=NULL, result_json=NULL",
@@ -641,14 +832,27 @@ def get_or_create_sidequest(for_date: str) -> dict:
         row = conn.execute("SELECT * FROM sidequest_log WHERE date = ?", (for_date,)).fetchone()
         if row is None:
             player = conn.execute("SELECT theme_pack FROM player WHERE id = 1").fetchone()
-            theme_key = player["theme_pack"] if player else "default"
-            theme = load_theme_pack(theme_key)
-            rng = random.Random(int(for_date.replace("-", "")) + 900)
-            chosen = weighted_choice(rng, theme.get("sidequests", []))
-            if not chosen:
-                chosen = {"kind": "bike_minutes", "target_min": 10, "target_max": 20, "reward": "token", "text": "Complete {target} bike minutes."}
-            target = rng.randint(int(chosen.get("target_min", 10)), int(chosen.get("target_max", 20)))
-            quest = {"kind": chosen["kind"], "target": target, "reward": chosen.get("reward", "token"), "text": chosen.get("text", "Complete {target} activity.").format(target=target)}
+            theme = load_theme_pack(player["theme_pack"] if player else "frontier_kingdom")
+            rng = random.Random(stable_seed(for_date, (player["theme_pack"] if player else "frontier_kingdom"), "sidequest"))
+
+            requirement = rng.choice([
+                {"kind": "bike_minutes", "target": 10, "label": "10 min bike"},
+                {"kind": "km", "target": 1, "label": "1 km"},
+                {"kind": "mobility_minutes", "target": 10, "label": "10 min mobility"},
+            ])
+            prompt = rng.choice(theme.get("sidequest_prompts", ["Deliver medicine over rough ground (race the clock)"]))
+            reward_kind = rng.choice(["token", "coins", "loot"])
+            reward_amount = rng.randint(3, 6) if reward_kind == "coins" else None
+            quest = {
+                "prompt": prompt,
+                "kind": requirement["kind"],
+                "target": requirement["target"],
+                "requirement_label": requirement["label"],
+                "reward_kind": reward_kind,
+                "reward_amount": reward_amount,
+                "text": f"{prompt} — Requirement: {requirement['label']}",
+                "chain": ["Approach", "Complication", "Resolution"],
+            }
             conn.execute("INSERT INTO sidequest_log (date, quest_json) VALUES (?, ?)", (for_date, json.dumps(quest)))
             conn.commit()
             row = conn.execute("SELECT * FROM sidequest_log WHERE date = ?", (for_date,)).fetchone()
@@ -656,7 +860,6 @@ def get_or_create_sidequest(for_date: str) -> dict:
         return {"date": row["date"], "quest": _parse_json(row["quest_json"], {}), "completed_at": row["completed_at"], "result": _parse_json(row["result_json"], None)}
     finally:
         conn.close()
-
 
 def complete_sidequest(for_date: str, bike_minutes: int, km: int, mobility_minutes: int) -> dict:
     conn = get_conn()
@@ -672,18 +875,30 @@ def complete_sidequest(for_date: str, bike_minutes: int, km: int, mobility_minut
         quest = _parse_json(row["quest_json"], {})
         progress = {"bike_minutes": max(0, bike_minutes), "km": max(0, km), "mobility_minutes": max(0, mobility_minutes)}.get(quest["kind"], 0)
         success = progress >= int(quest["target"])
-        result = {"success": success, "progress": progress, "needed": int(quest["target"]), "reward": quest["reward"] if success else None}
+        result = {"success": success, "progress": progress, "needed": int(quest["target"]), "reward": None}
 
         if success:
-            if quest["reward"] == "token":
-                conn.execute("UPDATE player SET campfire_tokens = campfire_tokens + 1, sidequests_completed = sidequests_completed + 1 WHERE id = 1")
-            else:
-                conn.execute("UPDATE player SET coins = coins + 4, sidequests_completed = sidequests_completed + 1 WHERE id = 1")
+            reward_kind = quest.get("reward_kind", "token")
             player = conn.execute("SELECT sidequests_completed, theme_pack FROM player WHERE id = 1").fetchone()
             assert player is not None
-            if player["sidequests_completed"] % 2 == 0:
+            if reward_kind == "token":
+                conn.execute("UPDATE player SET campfire_tokens = campfire_tokens + 1, sidequests_completed = sidequests_completed + 1 WHERE id = 1")
+                result["reward"] = "+1 token"
+            elif reward_kind == "coins":
+                coins = int(quest.get("reward_amount") or random.randint(3, 6))
+                conn.execute("UPDATE player SET coins = coins + ?, sidequests_completed = sidequests_completed + 1 WHERE id = 1", (coins,))
+                result["reward"] = f"+{coins} coins"
+            else:
+                _grant_loot_items(conn, for_date, 1, player["theme_pack"])
+                conn.execute("UPDATE player SET sidequests_completed = sidequests_completed + 1 WHERE id = 1")
+                result["reward"] = "+1 loot"
+
+            player2 = conn.execute("SELECT sidequests_completed, theme_pack FROM player WHERE id = 1").fetchone()
+            assert player2 is not None
+            if player2["sidequests_completed"] % 2 == 0:
                 _progress_leveling(conn, for_date, 1, "sidequest pair")
-            line = narrative_line(load_theme_pack(player["theme_pack"]), "sidequest_complete", int(for_date.replace("-", "")), "Side quest completed.")
+
+            line = narrative_line(load_theme_pack(player2["theme_pack"]), "romance_light_flirt", stable_seed(for_date, "sidequest", "narrative"), "Side quest completed.")
             _insert_event(conn, for_date, "sidequest", line)
 
         conn.execute("UPDATE sidequest_log SET completed_at = ?, result_json = ? WHERE date = ?", (utc_now_iso(), json.dumps(result), for_date))
@@ -691,7 +906,6 @@ def complete_sidequest(for_date: str, bike_minutes: int, km: int, mobility_minut
         return result
     finally:
         conn.close()
-
 
 def get_progress_snapshot(for_date: str) -> dict:
     conn = get_conn()

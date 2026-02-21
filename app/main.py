@@ -22,6 +22,8 @@ from app.db import (
     import_save_data,
     init_db,
     lock_in_workout,
+    force_generate_roll,
+    preview_intensity_tier,
     refresh_daily_roll,
     resolve_encounter,
     run_midnight_tick,
@@ -31,6 +33,7 @@ from app.db import (
     spend_token_reroll_encounter,
     testing_advance_day,
     today_key,
+    set_frontier_heat,
     update_settings,
     update_workout_reps,
 )
@@ -57,6 +60,7 @@ def today_context() -> dict:
         workout["squats"],
         workout["pullups"],
     )
+    intensity_preview = preview_intensity_tier(today)
     return {
         "today": today,
         "player": player,
@@ -68,6 +72,7 @@ def today_context() -> dict:
         "minimum_set": MINIMUM_SET,
         "page": "today",
         "needs_evening_nudge": should_send_evening_nudge(today),
+        "intensity_preview": intensity_preview,
     }
 
 
@@ -188,6 +193,7 @@ def save_settings(
     discord_webhook_url: str = Form(""),
     ntfy_topic_url: str = Form(""),
     day_timezone: str = Form("Pacific/Auckland"),
+    romance_dial: str = Form("light_flirt"),
 ) -> HTMLResponse:
     update_settings(
         name=name,
@@ -196,6 +202,7 @@ def save_settings(
         discord_webhook_url=discord_webhook_url,
         ntfy_topic_url=ntfy_topic_url,
         day_timezone=day_timezone,
+        romance_dial=romance_dial,
     )
     player = get_player()
     if request.headers.get("HX-Request"):
@@ -218,6 +225,35 @@ def advance_day() -> RedirectResponse:
         run_midnight_tick()
     return RedirectResponse(url="/", status_code=303)
 
+
+
+
+@app.post("/testing/set-heat")
+def testing_set_heat(value: int = Form(...)) -> RedirectResponse:
+    if get_player()["testing_mode"]:
+        set_frontier_heat(value)
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/testing/force-roll")
+def testing_force_roll(for_date: str = Form(...)) -> RedirectResponse:
+    if get_player()["testing_mode"]:
+        force_generate_roll(for_date, force_boss=False)
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/testing/force-boss-today")
+def testing_force_boss_today() -> RedirectResponse:
+    if get_player()["testing_mode"]:
+        force_generate_roll(today_key(), force_boss=True)
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/testing/reroll-free")
+def testing_reroll_free() -> RedirectResponse:
+    if get_player()["testing_mode"]:
+        force_generate_roll(today_key(), force_boss=False)
+    return RedirectResponse(url="/", status_code=303)
 
 @app.get("/export")
 def export_save() -> JSONResponse:

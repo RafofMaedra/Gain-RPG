@@ -47,6 +47,7 @@ label { display: grid; gap: 0.4rem; }
 
 input[type="text"],
 input[type="number"],
+select,
 textarea {
   width: 100%;
   padding: 0.6rem;

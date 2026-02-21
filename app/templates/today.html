@@ -7,6 +7,8 @@
   <p><strong>Grit:</strong> {{ player.grit_current }} / {{ player.grit_max }}</p>
   <p><strong>Coins:</strong> {{ player.coins }} | <strong>Tokens:</strong> {{ player.campfire_tokens }}</p>
   <p><strong>Theme:</strong> {{ player.theme_pack }}</p>
+  <p><strong>Heat:</strong> {{ player.frontier_heat }} | <strong>Tier:</strong> {{ encounter.intensity_tier if encounter.intensity_tier else intensity_preview.tier }}</p>
+  <p class="hint">Tier preview base {{ intensity_preview.base }}, wobble {{ intensity_preview.wobble }}.</p>
   {% if needs_evening_nudge %}
   <p class="hint">Reminder state: minimum set not logged yet.</p>
   {% endif %}
@@ -59,7 +61,11 @@
 <section class="card">
   <h3>Tonight's Encounter</h3>
   <p><strong>{{ encounter.threat_name }}</strong> ({{ encounter.tag }})</p>
-  <p>HP {{ encounter.hp }} | Damage {{ encounter.damage }}</p>
+  <p>Tier {{ encounter.intensity_tier }} | HP {{ encounter.hp }} | Damage {{ encounter.damage }}</p>
+  <p><strong>Location:</strong> {{ encounter.location }}</p>
+  <p><strong>Situation:</strong> {{ encounter.situation }}</p>
+  <p><strong>Twist:</strong> {{ encounter.twist }}</p>
+  <p><strong>Stakes:</strong> {{ encounter.stakes | join(', ') }}</p>
 
   {% if encounter_result and encounter_result.complete %}
     <p><strong>Result:</strong> {{ encounter_result.outcome }}</p>
@@ -107,4 +113,23 @@
     </form>
   {% endif %}
 </section>
+{% if player.testing_mode %}
+<section class="card">
+  <h3>Testing Mode Controls</h3>
+  <form method="post" action="/testing/set-heat" class="row-actions">
+    <input type="number" min="0" max="12" name="value" value="{{ player.frontier_heat }}" />
+    <button type="submit">Set Heat</button>
+  </form>
+  <form method="post" action="/testing/force-roll" class="row-actions">
+    <input type="text" name="for_date" value="{{ today }}" />
+    <button type="submit">Force Generate Date Roll</button>
+  </form>
+  <form method="post" action="/testing/force-boss-today">
+    <button type="submit">Force Sunday Boss Today</button>
+  </form>
+  <form method="post" action="/testing/reroll-free">
+    <button type="submit">Reroll Encounter (Free)</button>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

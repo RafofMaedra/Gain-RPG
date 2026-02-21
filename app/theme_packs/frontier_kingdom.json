@@ -1,0 +1,157 @@
+{
+  "locations": [
+    "Mudgate Palisade (outer wall, bored guards)",
+    "The King’s Road (rutted, wagon tracks)",
+    "Blackpine Treeline (fog, snapping branches)",
+    "Old Barrowfield (half-sunk stones)",
+    "Riverford Crossing (ferry bell, reeds)",
+    "Dustmarket (bright tents, thieves)",
+    "Sablewatch Tower (signal fire, lonely)",
+    "The Iron Mine (chains, lantern smoke)",
+    "Thornbridge (narrow span, deep gorge)",
+    "Saint Veyra’s Chapel (candles, vows)",
+    "The Mill and Granary (grain dust, rats)",
+    "The Lord’s Hunting Lodge (velvet, secrets)"
+  ],
+  "situations": [
+    "Escort a messenger through bad country",
+    "Clear a roadblock before nightfall",
+    "Retrieve stolen goods before they’re fenced",
+    "Protect a witness until dawn",
+    "Track a missing patrol (find proof)",
+    "Break a curse-sign nailed to a door",
+    "Guard a caravan for one hard stretch",
+    "Rescue someone taken into the woods",
+    "Hold the line while villagers evacuate",
+    "Deliver medicine in time (clock is ticking)",
+    "Investigate a body with no wounds",
+    "Win a public duel to settle a dispute (status on the line)"
+  ],
+  "stakes": [
+    "The village’s last food stores",
+    "A noble’s favour (and future backing)",
+    "A friend’s safety / reputation",
+    "Your banner-name in front of witnesses",
+    "A sealed letter that must not be read",
+    "A captured bandit who knows too much",
+    "A child who followed you out of town",
+    "A sacred relic (or a shameful fake)",
+    "Your right to carry steel inside the walls",
+    "Someone’s betrothal / inheritance"
+  ],
+  "twists": [
+    "Heavy rain turns everything to mud (movement/escape harder)",
+    "A frightened civilian gets in the way",
+    "The threat is wounded and desperate (more vicious)",
+    "Two factions are present; both want you to pick a side",
+    "The local guard is corrupt and obstructive",
+    "Someone you helped before shows up unexpectedly",
+    "A false accusation points at you",
+    "The bridge/roof/floor is unsafe (collapse risk)",
+    "A rival arrives to “help” (and steal credit)",
+    "The target is not where it should be",
+    "The threat is bait; the real danger is watching",
+    "A bribe is offered—publicly",
+    "A noble is present; decorum matters",
+    "A sacred rule is in play (no blood on holy ground)",
+    "The weather turns unnaturally cold",
+    "Something is on fire (time pressure)",
+    "The threat has a hostage",
+    "The locals refuse to speak unless impressed",
+    "The enemy leader tries to talk first",
+    "You recognise the enemy’s sigil from a past night"
+  ],
+  "weekday_threats": {
+    "1": [
+      "Roadside cutpurse (tries to flee)",
+      "Drunken militia bully (public humiliation threat)",
+      "Wolf pack testing the perimeter",
+      "“Tax collector” impostor shaking down farmers",
+      "Swarm of granary rats (plague fear)",
+      "Poacher with a hidden snare line",
+      "Bandit lookout on a ridge (whistle warning)",
+      "Bog-sick traveller (lies, desperation)",
+      "Runaway mule cart on the King’s Road",
+      "Barrowfield “lantern lights” (scarecrow curse)"
+    ],
+    "2": [
+      "Bandit duo with crossbows (ambush angles)",
+      "Highway toll gang with forged writ",
+      "Warg-scarred alpha wolf (smart, relentless)",
+      "Chapel relic thief (crowd turns on you if mishandled)",
+      "Mine “accident” that’s sabotage",
+      "Barrowfield grave-robbers (stir something they shouldn’t)",
+      "Riverford smuggler ring (boats, reeds, knives)",
+      "Corrupt guard captain with leverage",
+      "Blackpine stalker beast (silent, close)",
+      "Arsonist setting barns alight (catch them fast)"
+    ],
+    "3": [
+      "Bandit lieutenant with trained hounds",
+      "Witchwood curse-bearer (touch spreads malaise)",
+      "Armoured deserter with a vendetta",
+      "Cult cell in the chapel crypts",
+      "Barrow-wight stirring under a standing stone",
+      "Siege-saboteurs undermining palisade posts",
+      "River monster at the crossing (drag-under threat)",
+      "Assassin hired to kill a witness you’re guarding",
+      "Sablewatch signal fire goes out (something climbed the tower)",
+      "Blackpine beast that learns your patterns"
+    ],
+    "4": [
+      "Bandit warband raid (multiple fronts)",
+      "Witch-knight (cold aura, oathbound)",
+      "Barrow king’s herald (demands tribute… or blood)",
+      "A demon-marked outlaw (pain doesn’t stop him)",
+      "Noble coup attempt (political knife fight)",
+      "Plague panic riot (social threat becomes physical)",
+      "Riverford “flood curse” (water rises too fast)",
+      "Sablewatch overrun (hold until reinforcements)",
+      "The Hunting Lodge monster (kept as a secret)",
+      "A rival leads the enemy (personal stakes)"
+    ]
+  },
+  "boss_threats": {
+    "1": ["The Boar of Blackpine (gored patrols)", "“Red Jack” the roadside duellist (public spectacle)", "The Ferryman’s Debt (river spirit demands payment)"],
+    "2": ["The Toll Baron (bandit chief with paperwork + blades)", "The Mine Warden (corrupt, armoured, cornered)", "The Barrow Lantern Host (lights that lure travellers to die)"],
+    "3": ["The Hound-Lord (lieutenant + two vicious hounds)", "The Chapel Crypt Choir (cult ritual at midnight)", "The Wight Under Thornbridge (old oath, old hunger)"],
+    "4": ["The Warband Standard-Bearer (break the banner or break)", "The Witch-Knight of the Pale Road (duel with consequences)", "The Barrow King (one night only; survive to be remembered)"]
+  },
+  "loot_table": [
+    "Notched Longknife (looks mean; wins respect fast)",
+    "Roadcloak of Sablewatch (people make room for you)",
+    "Iron Ring of Oathkeeping (NPCs take your word seriously)",
+    "Wolf-Fang Charm (fear turns into focus; narrative buff)",
+    "Chapel Token (priests shelter you, no questions)",
+    "Barrow-Silver Coin (strange luck; reroll a Twist 1/week)",
+    "Stout Boots (never slips in mud; “breather nights” less punishing)",
+    "Hunter’s Oil (your weapon “sings”; +coins on Overwhelm)",
+    "Old Writ of Passage (bypass petty guards sometimes)",
+    "Scarred Buckler (negate 1 damage once per boss fight)"
+  ],
+  "narrative_candy": [
+    "The captain salutes first.","A crowd chants your name at Dustmarket.","A noble offers a private contract (bigger stakes next week).","The blacksmith sets aside “legend steel” for you.","Someone leaves flowers on your doorstep—no signature.","A flirtatious note: “Sunset. The west balcony.”","A kiss, quick and confident—then she’s gone.","A jealous glare from across the room (you’re noticed).","Your rival hears about this. He’s furious.","A child asks for a story of your fight (legacy begins)."
+  ],
+  "romance_light_flirt": [
+    "She fixes your collar like she has the right.","“Try not to die,” she says. “I’m invested.”","A ribbon pressed into your palm for luck.","A private toast behind the curtain—her smile lingers.","A dance offered; everyone watches you accept.","“My door isn’t locked,” she says, then walks away.","Perfume on a letter—just a time and place.","She lends you her dagger: “Bring it back.”","Her hand squeezes yours before you leave.","A balcony moment—quiet city below, her shoulder against yours.","A kiss (fade-to-black).","“You’re becoming trouble,” she says, pleased."
+  ],
+  "rival_beats": [
+    "He takes credit for your work—publicly.","He arrives late, “saving” you in front of witnesses.","He spreads a rumour: you only win with luck.","He challenges you to a duel with rules stacked against you.","His allies go quiet when you enter (they’ve heard).","He offers an alliance—then tests you with betrayal.","He is forced to yield… but swears it isn’t over.","You take his sigil or token as proof."
+  ],
+  "legacy_events": [
+    "You’re offered a neglected watchpost to restore.","A veteran asks to serve under your banner.","A stablemaster offers a mount “fit for your name.”","A priest asks you to sponsor a chapel bell (public status).","You’re granted a small strip of land (responsibility + pride).","Bandits mark your door with a warning sign (you matter now).","The King’s agent requests a private meeting."
+  ],
+  "frontier_news": [
+    "Bandits unite under a new banner.","A noble arrives with private guards.","The chapel declares a week of rites (social pressure).","Wolves migrate closer to town.","The mine hits something old.","A bounty board fills with your kind of work."
+  ],
+  "sidequest_prompts": [
+    "Deliver medicine over rough ground (race the clock)",
+    "Scout the treeline and return unseen",
+    "Carry water barrels during a fire (endurance)",
+    "Patrol the palisade twice (distance)",
+    "Escort a frightened family at night (steady pace)",
+    "Track a wounded beast until dawn (long pursuit)",
+    "Run a message between towers (distance/time trial)",
+    "Haul supplies to the mine (legs + grit)"
+  ]
+}
