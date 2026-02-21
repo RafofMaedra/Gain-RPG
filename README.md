@@ -26,6 +26,13 @@ It will:
 - send morning reminder around `08:00`
 - send evening nudge around `19:00` (only when minimum set is missing)
 
+
+Example crontab (every 5 minutes):
+
+```cron
+*/5 * * * * cd /path/to/Gain-RPG && /path/to/venv/bin/python -m app.jobs.schedule_runner
+```
+
 You can also run commands directly:
 
 ```bash
@@ -39,3 +46,11 @@ python -m app.jobs.reminders midnight
 
 Default content pack files live in `app/theme_packs/default/`.
 You can add another folder and set `theme_pack` in Settings to load it.
+
+
+## Test build checks
+
+```bash
+python -m compileall app
+python -m unittest discover -s tests -v
+```
