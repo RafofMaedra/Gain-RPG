@@ -681,7 +681,7 @@ def _grant_loot_items(conn: sqlite3.Connection, for_date: str, count: int, theme
         name = rng.choice(loot)
         conn.execute(
             "INSERT INTO inventory_item (name, type, effect_json, equipped) VALUES (?, ?, ?, 0)",
-            (name, "loot", json.dumps({}), 0),
+            (name, "loot", json.dumps({})),
         )
         awarded.append(name)
     return awarded
@@ -779,7 +779,14 @@ def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0,
             "last_round_damage": 0,
             "consequence": None,
             "last_round": {},
+            "starting_grit_pool": starting_grit_pool,
+            "grit_remaining_live": starting_grit_pool,
         }
+
+        if "starting_grit_pool" not in state:
+            state["starting_grit_pool"] = starting_grit_pool
+        if "grit_remaining_live" not in state:
+            state["grit_remaining_live"] = max(0, starting_grit_pool - int(state.get("grit_loss", 0)))
 
         def _count_successes(dice: list[int], st: int) -> int:
             return sum(2 if d == 6 else 1 for d in dice if d >= st)
@@ -931,6 +938,8 @@ def resolve_encounter(for_date: str, action: str = "auto", tempo_bonus: int = 0,
                     round_summary["threat_damage_after_barrier"] = state["last_round_damage"]
                     openings -= reduced
                 state["openings"] = openings
+
+            state["grit_remaining_live"] = max(0, starting_grit_pool - state["grit_loss"])
 
         if action == "auto":
             while not state["complete"] and state["grit_loss"] < starting_grit_pool:
