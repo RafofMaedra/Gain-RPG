@@ -12,6 +12,7 @@ from app.db import (
     apply_minimum_set,
     calculate_grit_restore,
     complete_sidequest,
+    equip_inventory_item,
     export_save_data,
     get_or_create_daily_roll,
     get_or_create_sidequest,
@@ -156,6 +157,13 @@ def sidequest_complete(
     complete_sidequest(today_key(), bike_minutes, km, mobility_minutes)
     return RedirectResponse(url="/", status_code=303)
 
+
+
+
+@app.post("/inventory/equip")
+def inventory_equip(item_id: int = Form(...)) -> RedirectResponse:
+    equip_inventory_item(item_id)
+    return RedirectResponse(url="/progress", status_code=303)
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings(request: Request) -> HTMLResponse:

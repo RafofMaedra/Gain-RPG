@@ -319,9 +319,11 @@ def lock_in_workout(log_date: str) -> None:
         player = conn.execute("SELECT * FROM player WHERE id = 1").fetchone()
         assert player is not None
         restore = calculate_grit_restore(workout["pushups"], workout["situps"], workout["squats"], workout["pullups"])
+        combat_stats = _combat_stats_from_player(conn, player)
+        effective_grit_max = player["grit_max"] + combat_stats["grit_bonus"]
         tentative = player["grit_current"] + restore
-        overflow = max(0, tentative - player["grit_max"])
-        conn.execute("UPDATE player SET grit_current = ?, coins = coins + ? WHERE id = 1", (min(player["grit_max"], tentative), overflow))
+        overflow = max(0, tentative - effective_grit_max)
+        conn.execute("UPDATE player SET grit_current = ?, coins = coins + ? WHERE id = 1", (min(effective_grit_max, tentative), overflow))
         conn.execute("UPDATE workout_log SET locked_in_at = ?, last_edited_at = ? WHERE date = ?", (utc_now_iso(), utc_now_iso(), log_date))
         if _minimum_streak(conn, log_date) % 7 == 0 and _minimum_streak(conn, log_date) > 0:
             conn.execute("UPDATE player SET campfire_tokens = campfire_tokens + 2 WHERE id = 1")
@@ -418,8 +420,61 @@ def refresh_daily_roll(for_date: str) -> None:
         conn.close()
 
 
-def _player_attack(level: int) -> int:
-    return 2 + (level // 2)
+def get_inventory() -> list[dict]:
+    conn = get_conn()
+    try:
+        rows = conn.execute("SELECT * FROM inventory_item ORDER BY id DESC").fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["effect"] = _parse_json(item.get("effect_json"), {})
+            items.append(item)
+        return items
+    finally:
+        conn.close()
+
+
+def equip_inventory_item(item_id: int) -> bool:
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT id, name, type, equipped FROM inventory_item WHERE id = ?", (item_id,)).fetchone()
+        if not row:
+            return False
+        if row["equipped"]:
+            conn.execute("UPDATE inventory_item SET equipped = 0 WHERE id = ?", (item_id,))
+            _insert_event(conn, today_key(), "inventory", f"Unequipped {row['name']}.")
+        else:
+            conn.execute("UPDATE inventory_item SET equipped = 0 WHERE type = ?", (row["type"],))
+            conn.execute("UPDATE inventory_item SET equipped = 1 WHERE id = ?", (item_id,))
+            _insert_event(conn, today_key(), "inventory", f"Equipped {row['name']}.")
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def _equipped_effect_totals(conn: sqlite3.Connection) -> dict:
+    rows = conn.execute("SELECT effect_json FROM inventory_item WHERE equipped = 1").fetchall()
+    totals = {"attack": 0, "guard": 0, "grit_bonus": 0}
+    for row in rows:
+        effect = _parse_json(row["effect_json"], {})
+        for key in totals:
+            totals[key] += int(effect.get(key, 0) or 0)
+    return totals
+
+
+def _combat_stats_from_player(conn: sqlite3.Connection, player: sqlite3.Row | dict) -> dict:
+    effects = _equipped_effect_totals(conn)
+    level = player["level"]
+    return {
+        "attack": 2 + (level // 2) + effects["attack"],
+        "guard": 1 + effects["guard"],
+        "grit_bonus": effects["grit_bonus"],
+    }
+
+
+def _player_attack(level: int, attack_bonus: int = 0) -> int:
+    return 2 + (level // 2) + attack_bonus
 
 
 def _grant_item_roll(conn: sqlite3.Connection, for_date: str) -> None:
@@ -468,43 +523,47 @@ def resolve_encounter(for_date: str, action: str = "auto") -> dict:
         player = conn.execute("SELECT * FROM player WHERE id = 1").fetchone()
         assert player is not None
         theme = load_theme_pack(player["theme_pack"])
+        combat_stats = _combat_stats_from_player(conn, player)
+        attack_stat = combat_stats["attack"]
+        guard_stat = combat_stats["guard"]
+        starting_grit_pool = player["grit_current"] + combat_stats["grit_bonus"]
 
-        state = existing or {"threat_hp": encounter["hp"], "grit_loss": 0, "round": 0, "complete": False, "outcome": None, "log": [], "applied": False, "last_action": None, "narrative": ""}
+        state = existing or {"threat_hp": encounter["hp"], "grit_loss": 0, "round": 0, "complete": False, "outcome": None, "log": [], "applied": False, "last_action": None, "narrative": "", "combat_stats": combat_stats}
 
         def do_round(chosen: str) -> None:
             state["round"] += 1
             state["last_action"] = chosen
             incoming = encounter["damage"] + (1 if encounter.get("special") == "every_3rd_round_plus_1_damage" and state["round"] % 3 == 0 else 0)
             if chosen == "strike":
-                dmg = _player_attack(player["level"])
+                dmg = attack_stat
                 state["threat_hp"] -= dmg
                 state["log"].append(f"Strike for {dmg}.")
                 if state["threat_hp"] > 0:
                     state["grit_loss"] += incoming
                     state["log"].append(f"Took {incoming} damage.")
             else:
-                guarded = max(0, incoming - 2)
+                guarded = max(0, incoming - guard_stat - 1)
                 state["threat_hp"] -= 1
                 state["grit_loss"] += guarded
                 state["log"].append(f"Guard chip for 1; took {guarded}.")
 
         if action == "auto":
-            while state["threat_hp"] > 0 and state["grit_loss"] < player["grit_current"]:
-                remaining = player["grit_current"] - state["grit_loss"]
+            while state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
+                remaining = starting_grit_pool - state["grit_loss"]
                 do_round("strike" if remaining > 2 else "guard")
         else:
-            if state["threat_hp"] > 0 and state["grit_loss"] < player["grit_current"]:
+            if state["threat_hp"] > 0 and state["grit_loss"] < starting_grit_pool:
                 do_round(action)
 
         if state["threat_hp"] <= 0:
             state["complete"] = True
             state["outcome"] = "overwhelm" if state["last_action"] == "guard" else "defeat"
-        elif state["grit_loss"] >= player["grit_current"]:
+        elif state["grit_loss"] >= starting_grit_pool:
             state["complete"] = True
             state["outcome"] = "survived_with_consequence"
 
         if state["complete"] and not state["applied"]:
-            end_grit = max(0, player["grit_current"] - state["grit_loss"])
+            end_grit = max(0, starting_grit_pool - state["grit_loss"] - combat_stats["grit_bonus"])
             coins = 3 if state["outcome"] == "overwhelm" else 2
             if end_grit == 0:
                 coins = max(0, coins - 1)
@@ -544,9 +603,10 @@ def spend_token_negate_tonight_damage(for_date: str) -> bool:
         result = _parse_json(row["result_json"], {})
         if not result.get("complete"):
             return False
-        current = conn.execute("SELECT grit_current, grit_max FROM player WHERE id=1").fetchone()
+        current = conn.execute("SELECT grit_current, grit_max, level FROM player WHERE id=1").fetchone()
         assert current is not None
-        restored = min(current["grit_max"], current["grit_current"] + int(result.get("grit_loss", 0)))
+        stats = _combat_stats_from_player(conn, current)
+        restored = min(current["grit_max"] + stats["grit_bonus"], current["grit_current"] + int(result.get("grit_loss", 0)))
         conn.execute("UPDATE player SET campfire_tokens = campfire_tokens - 1, grit_current = ? WHERE id = 1", (restored,))
         _insert_event(conn, for_date, "token", "Spent token to negate tonight's damage.")
         conn.commit()
@@ -643,7 +703,14 @@ def get_progress_snapshot(for_date: str) -> dict:
         while next_sunday.weekday() != 6:
             next_sunday += timedelta(days=1)
         events = conn.execute("SELECT * FROM event_log ORDER BY id DESC LIMIT 12").fetchall()
-        return {"player": dict(player), "streak": streak, "boss_in_days": (next_sunday - date.fromisoformat(for_date)).days, "events": [dict(e) for e in events]}
+        inventory_rows = conn.execute("SELECT * FROM inventory_item ORDER BY id DESC").fetchall()
+        inventory = []
+        for item_row in inventory_rows:
+            item = dict(item_row)
+            item["effect"] = _parse_json(item.get("effect_json"), {})
+            inventory.append(item)
+        combat_stats = _combat_stats_from_player(conn, player)
+        return {"player": dict(player), "streak": streak, "boss_in_days": (next_sunday - date.fromisoformat(for_date)).days, "events": [dict(e) for e in events], "inventory": inventory, "combat_stats": combat_stats}
     finally:
         conn.close()
 

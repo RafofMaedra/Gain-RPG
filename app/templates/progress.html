@@ -6,6 +6,26 @@
   <p><strong>Week progress:</strong> {{ player.weeks_completed_towards_next_level }} / {{ player.weeks_required_for_next_level }}</p>
   <p><strong>Current streak:</strong> {{ streak }} day(s)</p>
   <p><strong>Sunday boss in:</strong> {{ boss_in_days }} day(s)</p>
+  <p><strong>Combat Stats:</strong> Attack {{ combat_stats.attack }}, Guard {{ combat_stats.guard }}, Bonus Grit {{ combat_stats.grit_bonus }}</p>
+</section>
+
+<section class="card">
+  <h3>Inventory</h3>
+  <ul>
+    {% for item in inventory %}
+    <li>
+      <strong>{{ item.name }}</strong> ({{ item.type }})
+      {% if item.equipped %}<em>equipped</em>{% endif %}
+      <span class="hint">effect: {{ item.effect }}</span>
+      <form method="post" action="/inventory/equip">
+        <input type="hidden" name="item_id" value="{{ item.id }}" />
+        <button type="submit">{% if item.equipped %}Unequip{% else %}Equip{% endif %}</button>
+      </form>
+    </li>
+    {% else %}
+    <li>No items yet.</li>
+    {% endfor %}
+  </ul>
 </section>
 
 <section class="card">
