@@ -6,6 +6,10 @@
   <p><strong>Level:</strong> {{ player.level }}</p>
   <p><strong>Grit:</strong> {{ player.grit_current }} / {{ player.grit_max }}</p>
   <p><strong>Coins:</strong> {{ player.coins }} | <strong>Tokens:</strong> {{ player.campfire_tokens }}</p>
+  <p><strong>Theme:</strong> {{ player.theme_pack }}</p>
+  {% if needs_evening_nudge %}
+  <p class="hint">Reminder state: minimum set not logged yet.</p>
+  {% endif %}
   {% if player.testing_mode %}
   <form method="post" action="/testing/advance-day">
     <button type="submit">Testing: Advance Day + Midnight Tick</button>
@@ -40,6 +44,19 @@
 </section>
 
 <section class="card">
+  <h3>Campfire Tokens</h3>
+  <form method="post" action="/tokens/minimum-set">
+    <button type="submit">Spend 1: Treat today as minimum set</button>
+  </form>
+  <form method="post" action="/tokens/negate-damage">
+    <button type="submit">Spend 1: Negate tonight's damage</button>
+  </form>
+  <form method="post" action="/tokens/reroll">
+    <button type="submit">Spend 1: Reroll encounter once</button>
+  </form>
+</section>
+
+<section class="card">
   <h3>Tonight's Encounter</h3>
   <p><strong>{{ encounter.threat_name }}</strong> ({{ encounter.tag }})</p>
   <p>HP {{ encounter.hp }} | Damage {{ encounter.damage }}</p>
@@ -47,6 +64,9 @@
   {% if encounter_result and encounter_result.complete %}
     <p><strong>Result:</strong> {{ encounter_result.outcome }}</p>
     <p>Grit lost: {{ encounter_result.grit_loss }}{% if encounter_result.coins_earned is defined %} | Coins earned: {{ encounter_result.coins_earned }}{% endif %}</p>
+    {% if encounter_result.narrative %}
+    <p class="hint">{{ encounter_result.narrative }}</p>
+    {% endif %}
     <ul>
       {% for line in encounter_result.log %}
       <li>{{ line }}</li>

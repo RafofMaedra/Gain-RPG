@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.db import get_player, run_midnight_tick
+from app.db import get_notification_summary, get_player, run_midnight_tick
 from app.notifier import DiscordNotifier, NoopNotifier, NtfyNotifier
 
 
@@ -15,10 +15,10 @@ def _build_notifier():
 
 def main() -> None:
     result = run_midnight_tick()
-    notifier = _build_notifier()
-    notifier.send(
+    summary = get_notification_summary(result["today"])
+    _build_notifier().send(
         "Gain RPG Midnight Tick",
-        f"Prepared {result['today']} and auto-resolved {result['yesterday']} if needed.",
+        f"Prepared {result['today']}. Yesterday auto-resolved: {result['resolved_yesterday']}. Tonight threat: {summary['threat']}.",
     )
 
 

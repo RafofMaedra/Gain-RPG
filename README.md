@@ -13,10 +13,16 @@ uvicorn app.main:app --reload
 
 Open http://127.0.0.1:8000.
 
-## Midnight tick job
-
-Run this from cron/systemd timer:
+## Jobs (cron/systemd timer)
 
 ```bash
 python -m app.jobs.midnight_tick
+python -m app.jobs.reminders morning
+python -m app.jobs.reminders evening
+python -m app.jobs.reminders midnight
 ```
+
+## Theme packs
+
+Default content pack files live in `app/theme_packs/default/`.
+You can add another folder and set `theme_pack` in Settings to load it.

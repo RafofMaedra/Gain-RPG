@@ -24,6 +24,10 @@ from app.db import (
     refresh_daily_roll,
     resolve_encounter,
     run_midnight_tick,
+    should_send_evening_nudge,
+    spend_token_for_minimum_set,
+    spend_token_negate_tonight_damage,
+    spend_token_reroll_encounter,
     testing_advance_day,
     today_key,
     update_settings,
@@ -62,6 +66,7 @@ def today_context() -> dict:
         "preview_grit": preview_grit,
         "minimum_set": MINIMUM_SET,
         "page": "today",
+        "needs_evening_nudge": should_send_evening_nudge(today),
     }
 
 
@@ -122,6 +127,25 @@ def encounter_refresh() -> RedirectResponse:
         refresh_daily_roll(today_key())
     return RedirectResponse(url="/", status_code=303)
 
+
+
+
+@app.post("/tokens/minimum-set")
+def token_minimum_set() -> RedirectResponse:
+    spend_token_for_minimum_set(today_key())
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/tokens/negate-damage")
+def token_negate_damage() -> RedirectResponse:
+    spend_token_negate_tonight_damage(today_key())
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/tokens/reroll")
+def token_reroll() -> RedirectResponse:
+    spend_token_reroll_encounter(today_key())
+    return RedirectResponse(url="/", status_code=303)
 
 @app.post("/sidequest/complete")
 def sidequest_complete(
