@@ -48,7 +48,10 @@ def utc_now_iso() -> str:
 def _parse_json(raw: str | None, fallback=None):
     if not raw:
         return fallback
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return fallback
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:

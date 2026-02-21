@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -38,9 +39,11 @@ from app.db import (
     update_workout_reps,
 )
 
+APP_DIR = Path(__file__).resolve().parent
+
 app = FastAPI(title="Gain RPG")
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
 @app.on_event("startup")
@@ -61,12 +64,20 @@ def today_context() -> dict:
         workout["pullups"],
     )
     intensity_preview = preview_intensity_tier(today)
+    encounter = daily_roll.get("encounter", {}) if isinstance(daily_roll, dict) else {}
+    if not isinstance(encounter, dict):
+        encounter = {}
+    if not isinstance(encounter.get("stakes"), list):
+        encounter["stakes"] = []
+    encounter_result = daily_roll.get("result") if isinstance(daily_roll, dict) else None
+    if encounter_result is not None and not isinstance(encounter_result, dict):
+        encounter_result = None
     return {
         "today": today,
         "player": player,
         "workout": workout,
-        "encounter": daily_roll["encounter"],
-        "encounter_result": daily_roll["result"],
+        "encounter": encounter,
+        "encounter_result": encounter_result,
         "sidequest": sidequest,
         "preview_grit": preview_grit,
         "minimum_set": MINIMUM_SET,
@@ -78,18 +89,14 @@ def today_context() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "today.html", today_context())
+    return templates.TemplateResponse("today.html", {"request": request, **today_context()})
 
 
 @app.get("/progress", response_class=HTMLResponse)
 def progress(request: Request) -> HTMLResponse:
     today = today_key()
     snap = get_progress_snapshot(today)
-    return templates.TemplateResponse(
-        request,
-        "progress.html",
-        {"page": "progress", "today": today, **snap},
-    )
+    return templates.TemplateResponse("progress.html", {"request": request, "page": "progress", "today": today, **snap})
 
 
 @app.post("/workout/minimum-set")
@@ -173,15 +180,7 @@ def inventory_equip(item_id: int = Form(...)) -> RedirectResponse:
 @app.get("/settings", response_class=HTMLResponse)
 def settings(request: Request) -> HTMLResponse:
     player = get_player()
-    return templates.TemplateResponse(
-        request,
-        "settings.html",
-        {
-            "player": player,
-            "page": "settings",
-            "saved": False,
-        },
-    )
+    return templates.TemplateResponse("settings.html", {"request": request, "player": player, "page": "settings", "saved": False})
 
 
 @app.post("/settings", response_class=HTMLResponse)
@@ -206,14 +205,7 @@ def save_settings(
     )
     player = get_player()
     if request.headers.get("HX-Request"):
-        return templates.TemplateResponse(
-            request,
-            "settings_form.html",
-            {
-                "player": player,
-                "saved": True,
-            },
-        )
+        return templates.TemplateResponse("settings_form.html", {"request": request, "player": player, "saved": True})
 
     return RedirectResponse(url="/settings", status_code=303)
 
