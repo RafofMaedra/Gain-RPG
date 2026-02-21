@@ -39,6 +39,12 @@ class FrontierPackTests(unittest.TestCase):
         t2 = db.preview_intensity_tier(d)["base"]
         self.assertLess(t1, t2)
 
+    def test_auto_resolve_with_sqlite_row_player(self) -> None:
+        d = db.today_key()
+        result = db.resolve_encounter(d, action="auto")
+        self.assertTrue(result["complete"])
+        self.assertIsNotNone(result["outcome"])
+
 
 if __name__ == "__main__":
     unittest.main()
