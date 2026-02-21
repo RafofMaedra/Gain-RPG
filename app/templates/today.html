@@ -2,14 +2,20 @@
 {% block content %}
 <section class="card">
   <h2>Welcome, {{ player.name }}</h2>
+  <p><strong>Date:</strong> {{ today }}</p>
   <p><strong>Level:</strong> {{ player.level }}</p>
   <p><strong>Grit:</strong> {{ player.grit_current }} / {{ player.grit_max }}</p>
   <p><strong>Coins:</strong> {{ player.coins }} | <strong>Tokens:</strong> {{ player.campfire_tokens }}</p>
+  {% if player.testing_mode %}
+  <form method="post" action="/testing/advance-day">
+    <button type="submit">Testing: Advance Day + Midnight Tick</button>
+  </form>
+  {% endif %}
 </section>
 
 <section class="card">
   <h3>Today's Workout</h3>
-  <p class="hint">One tap minimum set: {{ minimum_set.pushups }} pushups, {{ minimum_set.situps }} situps, {{ minimum_set.squats }} squats, {{ minimum_set.pullups }} pullup.</p>
+  <p class="hint">Minimum set: {{ minimum_set.pushups }} pushups, {{ minimum_set.situps }} situps, {{ minimum_set.squats }} squats, {{ minimum_set.pullups }} pullup.</p>
 
   <form method="post" action="/workout/minimum-set">
     <button type="submit">Minimum Set</button>
@@ -20,7 +26,7 @@
     <label>Situps <input type="number" min="0" name="situps" value="{{ workout.situps }}" required></label>
     <label>Squats <input type="number" min="0" name="squats" value="{{ workout.squats }}" required></label>
     <label>Pullups <input type="number" min="0" name="pullups" value="{{ workout.pullups }}" required></label>
-    <button type="submit">Save Reps</button>
+    <button type="submit" {% if workout.locked_in_at %}disabled{% endif %}>Save Reps</button>
   </form>
 
   <p><strong>Grit restore preview:</strong> +{{ preview_grit }}</p>
@@ -58,6 +64,26 @@
     <form method="post" action="/encounter/manual" class="row-actions">
       <button type="submit" name="action" value="strike">Strike</button>
       <button type="submit" name="action" value="guard">Guard</button>
+    </form>
+    {% if player.testing_mode %}
+    <form method="post" action="/encounter/refresh">
+      <button type="submit">Testing: Refresh Encounter</button>
+    </form>
+    {% endif %}
+  {% endif %}
+</section>
+
+<section class="card">
+  <h3>Side Quest</h3>
+  <p>{{ sidequest.quest.text }}</p>
+  {% if sidequest.completed_at %}
+    <p><strong>Completed.</strong> Progress: {{ sidequest.result.progress }} / {{ sidequest.result.needed }}</p>
+  {% else %}
+    <form method="post" action="/sidequest/complete" class="grid-form">
+      <label>Bike minutes <input type="number" min="0" name="bike_minutes" value="0" /></label>
+      <label>Kilometres <input type="number" min="0" name="km" value="0" /></label>
+      <label>Mobility minutes <input type="number" min="0" name="mobility_minutes" value="0" /></label>
+      <button type="submit">Attempt Side Quest</button>
     </form>
   {% endif %}
 </section>

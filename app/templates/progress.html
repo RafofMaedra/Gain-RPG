@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Progress</h2>
+  <p><strong>Level:</strong> {{ player.level }}</p>
+  <p><strong>Week progress:</strong> {{ player.weeks_completed_towards_next_level }} / {{ player.weeks_required_for_next_level }}</p>
+  <p><strong>Current streak:</strong> {{ streak }} day(s)</p>
+  <p><strong>Sunday boss in:</strong> {{ boss_in_days }} day(s)</p>
+</section>
+
+<section class="card">
+  <h3>Recent Story Events</h3>
+  <ul>
+    {% for event in events %}
+    <li><strong>{{ event.date }}</strong> — {{ event.kind }}: {{ event.text }}</li>
+    {% else %}
+    <li>No events yet.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

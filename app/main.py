@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -9,12 +11,20 @@ from app.db import (
     MINIMUM_SET,
     apply_minimum_set,
     calculate_grit_restore,
+    complete_sidequest,
+    export_save_data,
     get_or_create_daily_roll,
+    get_or_create_sidequest,
     get_player,
+    get_progress_snapshot,
     get_workout_log,
+    import_save_data,
     init_db,
     lock_in_workout,
+    refresh_daily_roll,
     resolve_encounter,
+    run_midnight_tick,
+    testing_advance_day,
     today_key,
     update_settings,
     update_workout_reps,
@@ -35,6 +45,7 @@ def today_context() -> dict:
     player = get_player()
     workout = get_workout_log(today)
     daily_roll = get_or_create_daily_roll(today)
+    sidequest = get_or_create_sidequest(today)
     preview_grit = calculate_grit_restore(
         workout["pushups"],
         workout["situps"],
@@ -47,6 +58,7 @@ def today_context() -> dict:
         "workout": workout,
         "encounter": daily_roll["encounter"],
         "encounter_result": daily_roll["result"],
+        "sidequest": sidequest,
         "preview_grit": preview_grit,
         "minimum_set": MINIMUM_SET,
         "page": "today",
@@ -56,6 +68,17 @@ def today_context() -> dict:
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "today.html", today_context())
+
+
+@app.get("/progress", response_class=HTMLResponse)
+def progress(request: Request) -> HTMLResponse:
+    today = today_key()
+    snap = get_progress_snapshot(today)
+    return templates.TemplateResponse(
+        request,
+        "progress.html",
+        {"page": "progress", "today": today, **snap},
+    )
 
 
 @app.post("/workout/minimum-set")
@@ -93,6 +116,23 @@ def encounter_manual(action: str = Form(...)) -> RedirectResponse:
     return RedirectResponse(url="/", status_code=303)
 
 
+@app.post("/encounter/refresh")
+def encounter_refresh() -> RedirectResponse:
+    if get_player()["testing_mode"]:
+        refresh_daily_roll(today_key())
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/sidequest/complete")
+def sidequest_complete(
+    bike_minutes: int = Form(0),
+    km: int = Form(0),
+    mobility_minutes: int = Form(0),
+) -> RedirectResponse:
+    complete_sidequest(today_key(), bike_minutes, km, mobility_minutes)
+    return RedirectResponse(url="/", status_code=303)
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings(request: Request) -> HTMLResponse:
     player = get_player()
@@ -113,8 +153,16 @@ def save_settings(
     name: str = Form(...),
     theme_pack: str = Form(...),
     testing_mode: bool = Form(False),
+    discord_webhook_url: str = Form(""),
+    ntfy_topic_url: str = Form(""),
 ) -> HTMLResponse:
-    update_settings(name=name, theme_pack=theme_pack, testing_mode=testing_mode)
+    update_settings(
+        name=name,
+        theme_pack=theme_pack,
+        testing_mode=testing_mode,
+        discord_webhook_url=discord_webhook_url,
+        ntfy_topic_url=ntfy_topic_url,
+    )
     player = get_player()
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -126,4 +174,23 @@ def save_settings(
             },
         )
 
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/testing/advance-day")
+def advance_day() -> RedirectResponse:
+    if get_player()["testing_mode"]:
+        testing_advance_day(1)
+        run_midnight_tick()
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/export")
+def export_save() -> JSONResponse:
+    return JSONResponse(export_save_data())
+
+
+@app.post("/import")
+def import_save(payload: str = Form(...)) -> RedirectResponse:
+    import_save_data(json.loads(payload))
     return RedirectResponse(url="/settings", status_code=303)

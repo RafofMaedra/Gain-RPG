@@ -1,6 +1,6 @@
 # Gain RPG
 
-Milestone 1 scaffold for a self-hosted FastAPI + SQLite workout RPG app.
+Self-hosted FastAPI + SQLite workout RPG app.
 
 ## Run locally
 
@@ -12,3 +12,11 @@ uvicorn app.main:app --reload
 ```
 
 Open http://127.0.0.1:8000.
+
+## Midnight tick job
+
+Run this from cron/systemd timer:
+
+```bash
+python -m app.jobs.midnight_tick
+```

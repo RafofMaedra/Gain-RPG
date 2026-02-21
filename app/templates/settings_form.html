@@ -13,10 +13,32 @@
     <input type="text" name="theme_pack" value="{{ player.theme_pack }}" required />
   </label>
 
+  <label>
+    Discord webhook URL
+    <input type="text" name="discord_webhook_url" value="{{ player.discord_webhook_url }}" />
+  </label>
+
+  <label>
+    ntfy topic URL
+    <input type="text" name="ntfy_topic_url" value="{{ player.ntfy_topic_url }}" />
+  </label>
+
   <label class="checkbox-row">
     <input type="checkbox" name="testing_mode" {% if player.testing_mode %}checked{% endif %} />
     Testing mode
   </label>
 
   <button type="submit">Save</button>
+</form>
+
+<hr />
+<h3>Export / Import Save</h3>
+<p class="hint">Use export JSON for backups. Import expects the same JSON structure.</p>
+<p><a href="/export" target="_blank">Export save JSON</a></p>
+<form method="post" action="/import">
+  <label>
+    Paste save JSON
+    <textarea name="payload" rows="8" required></textarea>
+  </label>
+  <button type="submit">Import save</button>
 </form>
